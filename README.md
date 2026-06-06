@@ -38,17 +38,23 @@ Example: a 20-second product video is split into 3 highlight clips.
 <table>
   <tr>
     <td width="33%">
-      <video src="examples/demo-clips/01-skepticism-turns-into-curiosity.mp4" controls muted playsinline width="100%"></video>
+      <a href="examples/demo-clips/01-skepticism-turns-into-curiosity.mp4">
+        <img src="examples/demo-clips/01-skepticism-turns-into-curiosity.gif" alt="Skepticism turns into curiosity demo" width="100%" />
+      </a>
       <strong>Skepticism turns into curiosity</strong><br />
       <sub>0:00-0:05.2 · Hook</sub>
     </td>
     <td width="33%">
-      <video src="examples/demo-clips/02-benefit-stack-in-one-beat.mp4" controls muted playsinline width="100%"></video>
+      <a href="examples/demo-clips/02-benefit-stack-in-one-beat.mp4">
+        <img src="examples/demo-clips/02-benefit-stack-in-one-beat.gif" alt="Benefit stack in one beat demo" width="100%" />
+      </a>
       <strong>Benefit stack in one beat</strong><br />
       <sub>0:05.2-0:12.4 · Product value</sub>
     </td>
     <td width="33%">
-      <video src="examples/demo-clips/03-taste-proof-and-direct-recommendation.mp4" controls muted playsinline width="100%"></video>
+      <a href="examples/demo-clips/03-taste-proof-and-direct-recommendation.mp4">
+        <img src="examples/demo-clips/03-taste-proof-and-direct-recommendation.gif" alt="Taste proof and direct recommendation demo" width="100%" />
+      </a>
       <strong>Taste proof and direct recommendation</strong><br />
       <sub>0:12.4-0:20.1 · CTA</sub>
     </td>
