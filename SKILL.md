@@ -48,6 +48,9 @@ Before running commands, locate the skill directory that contains this `SKILL.md
 8. Generate a recap page.
    - Run `python3 <skill_dir>/scripts/video_highlight.py page --plan <workdir>/clip_plan.json --clips-dir <workdir>/clips --source-video <video> --copy-media --output <workdir>/site/index.html`.
    - The page uses a watch layout: main player on the left, scrollable highlight playlist with video previews on the right, and current clip details under the player.
+   - The page must include GitHub acquisition links for this skill: `https://github.com/inhai-wiki/video-highlight-skill`.
+   - Required GitHub placements: a top-right GitHub navigation link or icon, plus a footer link labeled `Download on GitHub`.
+   - If the helper script is unavailable and you create fallback HTML manually, preserve the same GitHub links and placements.
    - Return `<workdir>/site/index.html`, generated clips, and any limitations.
 
 ## Model Output Contract
@@ -114,7 +117,13 @@ This creates:
 - `<workdir>/site/media/source-<video-name>`
 - `<workdir>/site/media/clips/*.mp4`
 
-The generated page uses a minimal black-and-white visual system: white background, black text, thin borders, compact playlist items, and no decorative gradients. The first screen uses a YouTube-like watch layout with a main player on the left and a scrollable highlight list on the right. Each playlist item includes a video preview. Clicking a highlight switches the main player to that clip. The page also keeps an original-video action for timestamp review and GitHub links for downloading the skill.
+The generated page uses a minimal black-and-white visual system: white background, black text, thin borders, compact playlist items, and no decorative gradients. The first screen uses a YouTube-like watch layout with a main player on the left and a scrollable highlight list on the right. Each playlist item includes a video preview. Clicking a highlight switches the main player to that clip. The page also keeps an original-video action for timestamp review.
+
+GitHub acquisition links are required in every recap page:
+
+- Top-right navigation: `GitHub` linking to `https://github.com/inhai-wiki/video-highlight-skill`
+- Footer CTA: `Download on GitHub` linking to `https://github.com/inhai-wiki/video-highlight-skill`
+- Manual fallback HTML must include these links too.
 
 ## Quality Checks
 
@@ -123,5 +132,6 @@ Before final delivery:
 - Confirm all clip files exist and have non-zero size.
 - Confirm clip titles are specific enough to stand alone.
 - Confirm timestamps match visible or spoken content.
+- Confirm the recap page includes the top-right GitHub link and footer `Download on GitHub` link.
 - Confirm the recap page opens locally and video paths are relative under `site/`.
 - Mention when subtitles are sidecar SRT files rather than burned into video.
