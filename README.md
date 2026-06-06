@@ -35,23 +35,37 @@ Compatible with Agent frameworks that support GitHub Skill installation, includi
 
 Example: a 20-second product video is split into 3 highlight clips.
 
-### 1. Skepticism turns into curiosity
-
-[![Skepticism turns into curiosity demo](examples/demo-clips/01-skepticism-turns-into-curiosity.gif)](examples/demo-clips/01-skepticism-turns-into-curiosity.mp4)
-
-`0:00-0:05.2` · Hook
-
-### 2. Benefit stack in one beat
-
-[![Benefit stack in one beat demo](examples/demo-clips/02-benefit-stack-in-one-beat.gif)](examples/demo-clips/02-benefit-stack-in-one-beat.mp4)
-
-`0:05.2-0:12.4` · Product value
-
-### 3. Taste proof and direct recommendation
-
-[![Taste proof and direct recommendation demo](examples/demo-clips/03-taste-proof-and-direct-recommendation.gif)](examples/demo-clips/03-taste-proof-and-direct-recommendation.mp4)
-
-`0:12.4-0:20.1` · CTA
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <a href="examples/demo-clips/01-skepticism-turns-into-curiosity.mp4">
+        <img src="examples/demo-clips/01-skepticism-turns-into-curiosity.gif" alt="Skepticism turns into curiosity demo" width="100%" />
+      </a>
+      <br />
+      <strong>1. Skepticism turns into curiosity</strong>
+      <br />
+      <code>0:00-0:05.2</code> · Hook
+    </td>
+    <td width="33%" valign="top">
+      <a href="examples/demo-clips/02-benefit-stack-in-one-beat.mp4">
+        <img src="examples/demo-clips/02-benefit-stack-in-one-beat.gif" alt="Benefit stack in one beat demo" width="100%" />
+      </a>
+      <br />
+      <strong>2. Benefit stack in one beat</strong>
+      <br />
+      <code>0:05.2-0:12.4</code> · Product value
+    </td>
+    <td width="33%" valign="top">
+      <a href="examples/demo-clips/03-taste-proof-and-direct-recommendation.mp4">
+        <img src="examples/demo-clips/03-taste-proof-and-direct-recommendation.gif" alt="Taste proof and direct recommendation demo" width="100%" />
+      </a>
+      <br />
+      <strong>3. Taste proof and direct recommendation</strong>
+      <br />
+      <code>0:12.4-0:20.1</code> · CTA
+    </td>
+  </tr>
+</table>
 
 Example plan:
 
