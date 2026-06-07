@@ -1,0 +1,22 @@
+{
+  "id": "product-ad",
+  "title": "Short social product ad",
+  "scenario": "summary",
+  "source_video": "../../demo-input/original-product-video.mp4",
+  "metadata": "metadata.json",
+  "transcript": "transcript.json",
+  "frame_observations": "frame_observations.json",
+  "expected_analysis": "expected_video_analysis.json",
+  "expectations": {
+    "min_transcript_items": 3,
+    "min_frame_observations": 3,
+    "min_segments": 3,
+    "min_search_rows": 3,
+    "required_topics": ["hook", "product benefit", "CTA"],
+    "required_entities": ["Raspberry Rose"],
+    "required_claim_text": ["five grams of sugar"],
+    "required_ocr": ["Raspberry Rose"],
+    "required_search_text": ["prebiotic", "recommendation"],
+    "summary_contains": ["skeptical hook", "product benefits"]
+  }
+}

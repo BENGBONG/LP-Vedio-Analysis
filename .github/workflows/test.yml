@@ -13,7 +13,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Compile scripts
-        run: python -m py_compile scripts/video_understanding.py scripts/video_highlight.py tests/test_video_understanding.py
+        run: python -m py_compile scripts/video_understanding.py scripts/video_highlight.py scripts/evaluate_fixtures.py tests/test_video_understanding.py tests/test_eval_fixtures.py
       - name: Run unit tests
         run: python -m unittest discover -s tests
       - name: Validate sample artifacts
@@ -21,14 +21,24 @@ jobs:
           python scripts/video_understanding.py validate-transcript assets/sample_transcript.json
           python scripts/video_understanding.py validate-frames assets/sample_frame_observations.json
           python scripts/video_understanding.py validate-analysis assets/sample_video_analysis.json
+          python scripts/evaluate_fixtures.py
       - name: Exercise derived outputs
         run: |
           mkdir -p work/ci
+          python scripts/video_understanding.py plan-analysis \
+            --scenario summary \
+            --output work/ci/analysis_strategy.json
           python scripts/video_understanding.py build-segments \
             --transcript assets/sample_transcript.json \
             --frames assets/sample_frame_observations.json \
             --output work/ci/video_analysis.json \
             --scenario summary
+          python scripts/video_understanding.py prepare-frame-review \
+            --frames-dir examples \
+            --interval 30 \
+            --output work/ci/frame_review_manifest.json \
+            --prompt-output work/ci/frame_review_prompt.md
           python scripts/video_understanding.py summary --analysis work/ci/video_analysis.json --output work/ci/summary.md
           python scripts/video_understanding.py search-index --analysis work/ci/video_analysis.json --output work/ci/search_index.jsonl
+          python scripts/video_understanding.py refine-plan --analysis work/ci/video_analysis.json --output work/ci/refine_plan.json
           python scripts/video_understanding.py derive-clips --analysis work/ci/video_analysis.json --output work/ci/clip_plan.json

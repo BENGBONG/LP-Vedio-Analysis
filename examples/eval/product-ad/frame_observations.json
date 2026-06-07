@@ -1,0 +1,25 @@
+{
+  "frames": [
+    {
+      "timestamp": 2.0,
+      "path": "frames/frame_00001.jpg",
+      "caption": "Creator reacts to the can on a couch.",
+      "ocr": [],
+      "objects": ["creator", "can", "couch"]
+    },
+    {
+      "timestamp": 8.0,
+      "path": "frames/frame_00002.jpg",
+      "caption": "Creator holds the product can clearly in frame.",
+      "ocr": ["Raspberry Rose"],
+      "objects": ["creator", "can"]
+    },
+    {
+      "timestamp": 17.0,
+      "path": "frames/frame_00003.jpg",
+      "caption": "Product is shown close to camera during the recommendation.",
+      "ocr": [],
+      "objects": ["can", "hand"]
+    }
+  ]
+}

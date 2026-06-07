@@ -107,6 +107,14 @@ def load_list_payload(path, key):
     return normalize_list_payload(load_plan(path), key)
 
 
+def ensure_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
 def relative_url(path, base_dir):
     try:
         return Path(path).resolve().relative_to(Path(base_dir).resolve()).as_posix()
@@ -124,6 +132,157 @@ def copy_media_file(src, media_dir, prefix=""):
     if source.resolve() != target.resolve():
         shutil.copy2(source, target)
     return target
+
+
+def list_frame_files(frames_dir):
+    root = Path(frames_dir)
+    patterns = ["*.jpg", "*.jpeg", "*.png", "*.webp"]
+    files = []
+    for pattern in patterns:
+        files.extend(root.glob(pattern))
+    return sorted(path for path in files if path.is_file())
+
+
+def trailing_number(text, fallback):
+    digits = []
+    for char in reversed(str(text)):
+        if char.isdigit():
+            digits.append(char)
+        elif digits:
+            break
+    if not digits:
+        return fallback
+    return int("".join(reversed(digits)))
+
+
+def build_frame_review_manifest(frames_dir, interval, start_time=0.0, relative_to=None):
+    root = Path(frames_dir)
+    base = Path(relative_to) if relative_to else root.parent
+    frames = []
+    for fallback_index, path in enumerate(list_frame_files(root), start=1):
+        index = trailing_number(path.stem, fallback_index)
+        timestamp = float(start_time) + max(0, index - 1) * float(interval)
+        frames.append({
+            "id": path.stem,
+            "index": index,
+            "timestamp": timestamp,
+            "path": relative_url(path, base),
+            "absolute_path": str(path.resolve()),
+        })
+    return {
+        "schema": "frame_review_manifest.v1",
+        "frames_dir": str(root),
+        "frame_interval": float(interval),
+        "start_time": float(start_time),
+        "instructions": {
+            "task": "Review each sampled video frame with a multimodal model and return frame observations.",
+            "output_schema": "frame_observations.v1",
+            "required_fields": ["timestamp", "path", "caption", "ocr", "objects"],
+        },
+        "frames": frames,
+    }
+
+
+def frame_review_prompt(manifest, language):
+    frame_rows = "\n".join(
+        f"- {item['id']} @ {format_seconds(item['timestamp'])}: {item['path']}"
+        for item in manifest.get("frames", [])
+    )
+    return f"""# Frame Review Task
+
+Review the sampled video frames listed below and return strict JSON.
+
+Language for `caption`, `objects`, and `notes`: {language}
+
+Return this shape:
+
+```json
+{{
+  "frames": [
+    {{
+      "timestamp": 0,
+      "path": "frames/frame_00001.jpg",
+      "caption": "Describe the visible scene, action, setting, mood, and any relevant uncertainty.",
+      "ocr": ["visible text, signs, subtitles, labels"],
+      "objects": ["important objects, people, places, visual elements"],
+      "confidence": 0.0,
+      "notes": "Optional uncertainty, location clues, or follow-up needs."
+    }}
+  ]
+}}
+```
+
+Rules:
+
+- Keep `timestamp` and `path` exactly aligned with the manifest.
+- Put all visible text in `ocr`; use an empty list when there is none.
+- Use `caption` for visual facts and careful uncertainty, not creative copy.
+- Use `objects` for searchable nouns such as people, roads, mountains, food stalls, UI screens, products, animals, signs, and vehicles.
+- Do not invent exact place names, identities, brands, or claims unless visible in the frame or provided by OCR.
+
+Frames:
+
+{frame_rows}
+"""
+
+
+def normalize_frame_review_payload(data, manifest=None):
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        items = (
+            data.get("frames")
+            or data.get("frame_observations")
+            or data.get("observations")
+            or []
+        )
+    else:
+        raise ValueError("frame review payload must be a JSON object or list")
+    if not isinstance(items, list):
+        raise ValueError("frame review items must be a list")
+    manifest_frames = {}
+    if manifest:
+        for frame in manifest.get("frames") or []:
+            for key in [frame.get("id"), frame.get("path"), Path(str(frame.get("path", ""))).name]:
+                if key:
+                    manifest_frames[str(key)] = frame
+    normalized = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"frame review item {index} must be an object")
+        lookup_keys = [
+            item.get("id"),
+            item.get("path"),
+            item.get("frame_path"),
+            Path(str(item.get("path", ""))).name if item.get("path") else "",
+        ]
+        manifest_item = {}
+        for key in lookup_keys:
+            if key and str(key) in manifest_frames:
+                manifest_item = manifest_frames[str(key)]
+                break
+        timestamp = item.get("timestamp", item.get("time", manifest_item.get("timestamp")))
+        path = item.get("path") or item.get("frame_path") or manifest_item.get("path") or ""
+        if timestamp is None:
+            raise ValueError(f"frame review item {index} is missing timestamp")
+        if not path:
+            raise ValueError(f"frame review item {index} is missing path")
+        normalized.append({
+            "timestamp": parse_time(timestamp),
+            "path": str(path),
+            "caption": str(
+                item.get("caption")
+                or item.get("description")
+                or item.get("visual_description")
+                or ""
+            ).strip(),
+            "ocr": [str(value) for value in ensure_list(item.get("ocr", item.get("text_overlays", []))) if str(value).strip()],
+            "objects": [str(value) for value in ensure_list(item.get("objects", item.get("visual_elements", []))) if str(value).strip()],
+            **({"confidence": item.get("confidence")} if item.get("confidence") is not None else {}),
+            **({"notes": item.get("notes")} if item.get("notes") else {}),
+        })
+    normalized.sort(key=lambda item: parse_time(item.get("timestamp")))
+    return normalized
 
 
 def render_tags(tags):
@@ -385,8 +544,503 @@ def metadata_source(metadata):
             source["height"] = int(stream.get("height") or 0)
             source["fps"] = stream.get("avg_frame_rate") or stream.get("r_frame_rate") or ""
         if stream.get("codec_type") == "audio":
-            source["has_audio"] = True
+                source["has_audio"] = True
     return source
+
+
+def analysis_duration(analysis):
+    source = analysis.get("source") or {}
+    if source.get("duration") not in (None, ""):
+        try:
+            return parse_time(source.get("duration"))
+        except Exception:
+            return 0.0
+    ends = []
+    for field in ["segments", "moments", "transcript"]:
+        for item in analysis.get(field) or []:
+            if isinstance(item, dict) and item.get("end") not in (None, ""):
+                try:
+                    ends.append(parse_time(item.get("end")))
+                except Exception:
+                    pass
+    return max(ends) if ends else 0.0
+
+
+def clamp_window(start, end, duration=0.0, padding=0.0):
+    start = max(0.0, parse_time(start) - float(padding))
+    end = parse_time(end) + float(padding)
+    if duration:
+        end = min(float(duration), end)
+    return start, max(start, end)
+
+
+def frame_count_for_interval(duration, interval, max_frames=0):
+    if not duration or not interval:
+        return 0
+    count = int(duration // interval) + 1
+    if max_frames:
+        count = min(count, int(max_frames))
+    return count
+
+
+def classify_content_type(scenario, content_type):
+    if content_type and content_type != "auto":
+        return content_type
+    if scenario in {"meeting", "course", "qa"}:
+        return "transcript_primary"
+    if scenario in {"live"}:
+        return "visual_dense"
+    return "balanced"
+
+
+def build_analysis_strategy(metadata, scenario="summary", content_type="auto", budget="standard"):
+    source = metadata_source(metadata)
+    duration = float(source.get("duration") or 0)
+    minutes = duration / 60 if duration else 0
+    has_audio = bool(source.get("has_audio"))
+    classified = classify_content_type(scenario, content_type)
+
+    if minutes and minutes <= 5:
+        intervals = {"quick": 30, "standard": 10, "deep": 5}
+    elif minutes <= 15:
+        intervals = {"quick": 60, "standard": 30, "deep": 10}
+    elif minutes <= 30:
+        intervals = {"quick": 90, "standard": 60, "deep": 30}
+    elif minutes <= 60:
+        intervals = {"quick": 180, "standard": 120, "deep": 60}
+    else:
+        intervals = {"quick": 300, "standard": 180, "deep": 120}
+
+    if classified == "visual_dense":
+        intervals = {key: max(5, value / 2) for key, value in intervals.items()}
+    elif classified == "transcript_primary":
+        intervals = {key: value * 2 for key, value in intervals.items()}
+
+    max_frames_by_budget = {"quick": 40, "standard": 80, "deep": 160}
+    refine_interval_by_budget = {"quick": 10, "standard": 5, "deep": 3}
+    budget = budget if budget in max_frames_by_budget else "standard"
+    coarse_interval = float(intervals[budget])
+    max_frames = max_frames_by_budget[budget]
+    estimated_frames = frame_count_for_interval(duration, coarse_interval, max_frames=max_frames)
+    if estimated_frames >= max_frames and duration:
+        coarse_interval = max(coarse_interval, duration / max_frames)
+        estimated_frames = frame_count_for_interval(duration, coarse_interval, max_frames=max_frames)
+
+    return {
+        "schema": "analysis_strategy.v1",
+        "scenario": scenario,
+        "content_type": classified,
+        "budget": budget,
+        "source": source,
+        "duration_seconds": duration,
+        "duration_minutes": round(minutes, 2),
+        "recommended": {
+            "asr_scope": "full" if has_audio else "none",
+            "coarse_frame_interval": round(coarse_interval, 2),
+            "coarse_max_frames": max_frames,
+            "estimated_coarse_frames": estimated_frames,
+            "vlm_scope": "coarse_frames_then_refine_windows",
+            "refine_frame_interval": refine_interval_by_budget[budget],
+            "refine_window_padding": 5,
+        },
+        "rationale": [
+            "Use ASR as the low-cost full-video signal when audio exists." if has_audio else "No audio stream detected; visual review is the primary signal.",
+            "Use low-frequency frame review for whole-video structure.",
+            "Run multimodal review only on candidate windows selected by refine-plan.",
+        ],
+        "commands": [
+            "python3 scripts/video_understanding.py extract-audio <video> --output <workdir>/audio.wav" if has_audio else "",
+            f"python3 scripts/video_understanding.py sample-frames <video> --output-dir <workdir>/frames --interval {round(coarse_interval, 2)} --max-frames {max_frames}",
+            f"python3 scripts/video_understanding.py prepare-frame-review --frames-dir <workdir>/frames --interval {round(coarse_interval, 2)} --output <workdir>/frame_review_manifest.json --prompt-output <workdir>/frame_review_prompt.md",
+            "python3 scripts/video_understanding.py refine-plan --analysis <workdir>/video_analysis.json --output <workdir>/refine_plan.json",
+        ],
+    }
+
+
+REFINE_REASON_KEYWORDS = [
+    "封面",
+    "预告",
+    "片尾",
+    "视觉冲击",
+    "人物关系",
+    "地点不确定",
+    "不确定",
+    "核验",
+    "OCR",
+    "字幕",
+    "招牌",
+    "路牌",
+]
+
+
+def text_contains_any(text, keywords):
+    haystack = str(text or "").lower()
+    return [keyword for keyword in keywords if str(keyword).lower() in haystack]
+
+
+def time_overlap(a_start, a_end, b_start, b_end):
+    return parse_time(a_start) < parse_time(b_end) and parse_time(a_end) > parse_time(b_start)
+
+
+def questions_for_window(questions, start, end):
+    hits = []
+    for question in questions or []:
+        if not isinstance(question, dict):
+            continue
+        if question.get("timestamp") in (None, ""):
+            hits.append(question)
+            continue
+        try:
+            ts = parse_time(question.get("timestamp"))
+        except Exception:
+            continue
+        if parse_time(start) <= ts <= parse_time(end):
+            hits.append(question)
+    return hits
+
+
+def moments_for_segment(moments, segment):
+    start = parse_time(segment.get("start"))
+    end = parse_time(segment.get("end"))
+    hits = []
+    for moment in moments or []:
+        if not isinstance(moment, dict):
+            continue
+        if moment.get("start") in (None, "") or moment.get("end") in (None, ""):
+            continue
+        try:
+            if time_overlap(start, end, moment.get("start"), moment.get("end")):
+                hits.append(moment)
+        except Exception:
+            pass
+    return hits
+
+
+def refine_priority(condition_count):
+    if condition_count >= 3:
+        return "P0"
+    if condition_count >= 2:
+        return "P1"
+    if condition_count >= 1:
+        return "P2"
+    return "skip"
+
+
+def recommended_refine_interval(priority, default_interval=5):
+    if priority == "P0":
+        return min(float(default_interval), 3.0)
+    if priority == "P1":
+        return float(default_interval)
+    if priority == "P2":
+        return max(float(default_interval), 10.0)
+    return float(default_interval)
+
+
+def segment_needs_refine(analysis, segment, args=None):
+    source = analysis.get("source") or {}
+    observations = analysis.get("observations") or {}
+    moments = analysis.get("moments") or analysis.get("highlights") or []
+    questions = analysis.get("questions") or []
+    has_audio = bool(source.get("has_audio"))
+    transcript_count = int(observations.get("transcript_count") or len(analysis.get("transcript") or []))
+    start = parse_time(segment.get("start"))
+    end = parse_time(segment.get("end"))
+    matched_moments = moments_for_segment(moments, segment)
+    matched_questions = questions_for_window(questions, start, end)
+    conditions = []
+
+    try:
+        importance = float(segment.get("importance", 0) or 0)
+    except Exception:
+        importance = 0
+    if importance >= 5:
+        conditions.append("importance >= 5")
+
+    high_score_moments = []
+    for moment in matched_moments:
+        try:
+            if float(moment.get("score", 0) or 0) >= 90:
+                high_score_moments.append(moment)
+        except Exception:
+            pass
+    if high_score_moments:
+        conditions.append("overlapping moment score >= 90")
+
+    text_parts = [
+        segment.get("title", ""),
+        segment.get("summary", ""),
+        " ".join(str(value) for value in segment.get("topics", []) or []),
+        " ".join(str(value) for value in segment.get("visuals", []) or []),
+    ]
+    for moment in matched_moments:
+        text_parts.extend([
+            moment.get("title", ""),
+            moment.get("summary", ""),
+            moment.get("reason", ""),
+            " ".join(str(value) for value in moment.get("tags", []) or []),
+            " ".join(str(value) for value in moment.get("takeaways", []) or []),
+        ])
+    keyword_hits = text_contains_any(" ".join(text_parts), REFINE_REASON_KEYWORDS)
+    if keyword_hits:
+        conditions.append("reason/title/summary contains: " + ", ".join(keyword_hits[:5]))
+
+    if has_audio and transcript_count == 0:
+        conditions.append("has_audio = true and transcript_count = 0")
+
+    if matched_questions:
+        conditions.append("questions present for window")
+
+    priority = refine_priority(len(conditions))
+    default_interval = getattr(args, "refine_interval", 5) if args else 5
+    padding = getattr(args, "padding", 5) if args else 5
+    duration = analysis_duration(analysis)
+    win_start, win_end = clamp_window(start, end, duration=duration, padding=padding)
+    needs_ocr = bool(keyword_hits) and any(word in " ".join(keyword_hits) for word in ["OCR", "字幕", "招牌", "路牌", "地点不确定", "不确定"])
+    needs_asr = bool(has_audio and (transcript_count == 0 or matched_questions or high_score_moments))
+    return {
+        "segment_id": segment.get("id", ""),
+        "segment_title": segment.get("title", ""),
+        "start": win_start,
+        "end": win_end,
+        "source_start": start,
+        "source_end": end,
+        "priority": priority,
+        "condition_count": len(conditions),
+        "conditions": conditions,
+        "matched_moments": [
+            {
+                "title": moment.get("title", ""),
+                "start": moment.get("start"),
+                "end": moment.get("end"),
+                "score": moment.get("score"),
+            }
+            for moment in matched_moments
+        ],
+        "recommended_frame_interval": recommended_refine_interval(priority, default_interval=default_interval),
+        "needs_vlm": priority != "skip",
+        "needs_ocr": needs_ocr,
+        "needs_asr": needs_asr,
+        "questions": matched_questions,
+    }
+
+
+def build_refine_plan(analysis, min_conditions=1, args=None):
+    errors = validate_analysis_data(analysis)
+    if errors:
+        raise ValueError("; ".join(errors))
+    windows = []
+    for segment in get_segments(analysis):
+        decision = segment_needs_refine(analysis, segment, args=args)
+        if decision["condition_count"] >= min_conditions:
+            windows.append(decision)
+    priority_rank = {"P0": 0, "P1": 1, "P2": 2, "skip": 3}
+    windows.sort(key=lambda item: (priority_rank.get(item["priority"], 9), parse_time(item["start"])))
+    return {
+        "schema": "refine_plan.v1",
+        "source_title": (analysis.get("source") or {}).get("title", ""),
+        "rules": [
+            "importance >= 5",
+            "overlapping moment score >= 90",
+            "reason/title/summary contains high-value or uncertainty keywords",
+            "has_audio = true and transcript_count = 0",
+            "questions present for the window",
+        ],
+        "priority_rules": {
+            "P0": "3 or more conditions",
+            "P1": "2 conditions",
+            "P2": "1 condition",
+        },
+        "windows": windows,
+    }
+
+
+def parse_priority_filter(value):
+    if not value:
+        return {"P0", "P1"}
+    return {item.strip().upper() for item in str(value).split(",") if item.strip()}
+
+
+def refine_window_dir_name(window, index):
+    label = window.get("segment_title") or window.get("segment_id") or f"window-{index}"
+    return f"{index:02d}-{window.get('priority', 'P')}-{safe_slug(label, f'window-{index:02d}')}"
+
+
+def run_sample_window_frames(video, window, frames_dir, interval, width):
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    vf = f"fps=1/{interval},scale='min({width},iw)':-2"
+    run_command([
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(window["start"]),
+        "-to",
+        str(window["end"]),
+        "-i",
+        video,
+        "-vf",
+        vf,
+        "-q:v",
+        "3",
+        str(frames_dir / "frame_%05d.jpg"),
+    ])
+
+
+def run_extract_window_audio(video, window, output):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    run_command([
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(window["start"]),
+        "-to",
+        str(window["end"]),
+        "-i",
+        video,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        str(output),
+    ])
+
+
+def execute_refine_plan(refine_plan, video, output_dir, priorities=None, language="Chinese", width=960, skip_audio=False):
+    priority_filter = parse_priority_filter(priorities)
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    execution_windows = []
+    for index, window in enumerate(refine_plan.get("windows") or [], start=1):
+        if window.get("priority") not in priority_filter:
+            continue
+        interval = float(window.get("recommended_frame_interval") or 5)
+        window_dir = out / refine_window_dir_name(window, len(execution_windows) + 1)
+        frames_dir = window_dir / "frames"
+        window_dir.mkdir(parents=True, exist_ok=True)
+        window_record = {
+            "window": window,
+            "directory": str(window_dir),
+            "frames_dir": str(frames_dir),
+            "frame_interval": interval,
+            "frame_review_manifest": str(window_dir / "frame_review_manifest.json"),
+            "frame_review_prompt": str(window_dir / "frame_review_prompt.md"),
+            "frame_review_output": str(window_dir / "frame_review_output.json"),
+            "frame_observations": str(window_dir / "frame_observations.json"),
+            "transcript": str(window_dir / "transcript.json"),
+            "audio": str(window_dir / "audio.wav") if window.get("needs_asr") and not skip_audio else "",
+        }
+        run_sample_window_frames(video, window, frames_dir, interval=interval, width=width)
+        manifest = build_frame_review_manifest(
+            frames_dir,
+            interval=interval,
+            start_time=parse_time(window["start"]),
+            relative_to=window_dir,
+        )
+        Path(window_record["frame_review_manifest"]).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        Path(window_record["frame_review_prompt"]).write_text(frame_review_prompt(manifest, language), encoding="utf-8")
+        if window_record["audio"]:
+            run_extract_window_audio(video, window, Path(window_record["audio"]))
+        (window_dir / "window.json").write_text(json.dumps(window_record, ensure_ascii=False, indent=2), encoding="utf-8")
+        execution_windows.append(window_record)
+    return {
+        "schema": "refine_execution.v1",
+        "source_video": video,
+        "priorities": sorted(priority_filter),
+        "language": language,
+        "windows": execution_windows,
+    }
+
+
+def unique_time_path_items(items):
+    seen = set()
+    output = []
+    for item in sorted(items, key=lambda value: parse_time(value.get("timestamp", value.get("start", 0)))):
+        key = (
+            round(parse_time(item.get("timestamp", item.get("start", 0))), 3),
+            str(item.get("path", item.get("text", ""))),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(item)
+    return output
+
+
+def load_refine_execution(execution_manifest=None, refine_dir=None):
+    if execution_manifest:
+        return load_plan(execution_manifest)
+    if not refine_dir:
+        raise ValueError("merge requires --execution-manifest or --refine-dir")
+    root = Path(refine_dir)
+    windows = []
+    for path in sorted(root.glob("*/window.json")):
+        windows.append(load_plan(path))
+    return {
+        "schema": "refine_execution.v1",
+        "source_video": "",
+        "windows": windows,
+    }
+
+
+def load_window_frame_observations(window_record, normalize_outputs=False):
+    observations_path = Path(window_record.get("frame_observations") or "")
+    if observations_path.exists():
+        return load_list_payload(observations_path, "frames")
+    review_path = Path(window_record.get("frame_review_output") or "")
+    manifest_path = Path(window_record.get("frame_review_manifest") or "")
+    if review_path.exists():
+        manifest = load_plan(manifest_path) if manifest_path.exists() else None
+        frames = normalize_frame_review_payload(load_plan(review_path), manifest=manifest)
+        if normalize_outputs and observations_path:
+            observations_path.parent.mkdir(parents=True, exist_ok=True)
+            observations_path.write_text(json.dumps({
+                "schema": "frame_observations.v1",
+                "source_review": str(review_path),
+                "frames": frames,
+            }, ensure_ascii=False, indent=2), encoding="utf-8")
+        return frames
+    return []
+
+
+def merge_refine_results(analysis, execution, normalize_outputs=False):
+    merged = json.loads(json.dumps(analysis, ensure_ascii=False))
+    all_frames = list(merged.get("frames") or [])
+    all_transcript = list(merged.get("transcript") or [])
+    merged_frame_count = 0
+    merged_transcript_count = 0
+    windows_used = []
+    for window_record in execution.get("windows") or []:
+        frames = load_window_frame_observations(window_record, normalize_outputs=normalize_outputs)
+        transcript_path = Path(window_record.get("transcript") or "")
+        transcript = load_list_payload(transcript_path, "transcript") if transcript_path.exists() else []
+        if frames or transcript:
+            windows_used.append({
+                "segment_id": (window_record.get("window") or {}).get("segment_id", ""),
+                "priority": (window_record.get("window") or {}).get("priority", ""),
+                "frames_added": len(frames),
+                "transcript_items_added": len(transcript),
+            })
+        all_frames.extend(frames)
+        all_transcript.extend(transcript)
+        merged_frame_count += len(frames)
+        merged_transcript_count += len(transcript)
+    merged["frames"] = unique_time_path_items(all_frames)
+    merged["transcript"] = sorted(all_transcript, key=lambda item: parse_time(item.get("start", 0)))
+    observations = merged.get("observations") or {}
+    observations["frame_count"] = len(merged["frames"])
+    observations["transcript_count"] = len(merged["transcript"])
+    observations["refined_frame_count"] = merged_frame_count
+    observations["refined_transcript_count"] = merged_transcript_count
+    merged["observations"] = observations
+    merged["refinement"] = {
+        "schema": "refinement_merge.v1",
+        "source_video": execution.get("source_video", ""),
+        "windows_used": windows_used,
+    }
+    errors = validate_analysis_data(merged)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return merged
 
 
 def segment_summary(transcript_items, frame_items):
@@ -610,6 +1264,20 @@ def cmd_probe(args):
     print(f"Wrote metadata to {args.output}")
 
 
+def cmd_plan_analysis(args):
+    metadata = load_plan(args.metadata) if args.metadata else {}
+    strategy = build_analysis_strategy(
+        metadata,
+        scenario=args.scenario,
+        content_type=args.content_type,
+        budget=args.budget,
+    )
+    strategy["commands"] = [command for command in strategy.get("commands", []) if command]
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_text(json.dumps(strategy, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote analysis strategy to {args.output}")
+
+
 def cmd_extract_audio(args):
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     run_command([
@@ -645,6 +1313,84 @@ def cmd_sample_frames(args):
         str(out / "frame_%05d.jpg"),
     ])
     print(f"Wrote frames to {out}")
+
+
+def cmd_prepare_frame_review(args):
+    manifest = build_frame_review_manifest(
+        args.frames_dir,
+        args.interval,
+        start_time=args.start_time,
+        relative_to=args.relative_to,
+    )
+    if not manifest["frames"]:
+        raise SystemExit(f"No frame images found in {args.frames_dir}")
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.prompt_output:
+        Path(args.prompt_output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.prompt_output).write_text(frame_review_prompt(manifest, args.language), encoding="utf-8")
+    print(f"Wrote frame review manifest with {len(manifest['frames'])} frames to {args.output}")
+    if args.prompt_output:
+        print(f"Wrote frame review prompt to {args.prompt_output}")
+
+
+def cmd_ingest_frame_review(args):
+    review = load_plan(args.review)
+    manifest = load_plan(args.manifest) if args.manifest else None
+    frames = normalize_frame_review_payload(review, manifest=manifest)
+    errors = validate_frame_items(frames)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}")
+        raise SystemExit(1)
+    payload = {
+        "schema": "frame_observations.v1",
+        "source_review": args.review,
+        "frames": frames,
+    }
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote {len(frames)} frame observations to {args.output}")
+
+
+def cmd_refine_plan(args):
+    analysis = load_plan(args.analysis)
+    try:
+        plan = build_refine_plan(analysis, min_conditions=args.min_conditions, args=args)
+    except ValueError as exc:
+        raise SystemExit(f"ERROR: {exc}") from exc
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote refine plan with {len(plan['windows'])} windows to {args.output}")
+
+
+def cmd_execute_refine_plan(args):
+    refine_plan = load_plan(args.plan)
+    execution = execute_refine_plan(
+        refine_plan,
+        video=args.video,
+        output_dir=args.output_dir,
+        priorities=args.priorities,
+        language=args.language,
+        width=args.width,
+        skip_audio=args.skip_audio,
+    )
+    manifest_path = Path(args.output_manifest or Path(args.output_dir) / "refine_execution_manifest.json")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(execution, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote refine execution manifest with {len(execution['windows'])} windows to {manifest_path}")
+
+
+def cmd_merge_refine_results(args):
+    analysis = load_plan(args.analysis)
+    try:
+        execution = load_refine_execution(execution_manifest=args.execution_manifest, refine_dir=args.refine_dir)
+        merged = merge_refine_results(analysis, execution, normalize_outputs=args.normalize_outputs)
+    except ValueError as exc:
+        raise SystemExit(f"ERROR: {exc}") from exc
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote merged refined analysis to {args.output}")
 
 
 def write_srt(path, subtitles, clip_start):
@@ -1547,6 +2293,14 @@ def build_parser():
     p.add_argument("--output", required=True)
     p.set_defaults(func=cmd_probe)
 
+    p = sub.add_parser("plan-analysis", help="Choose coarse ASR/frame/VLM strategy from metadata.")
+    p.add_argument("--metadata", default="", help="ffprobe metadata JSON.")
+    p.add_argument("--output", required=True)
+    p.add_argument("--scenario", choices=sorted(SCENARIOS), default="summary")
+    p.add_argument("--content-type", choices=["auto", "balanced", "transcript_primary", "visual_dense"], default="auto")
+    p.add_argument("--budget", choices=["quick", "standard", "deep"], default="standard")
+    p.set_defaults(func=cmd_plan_analysis)
+
     p = sub.add_parser("extract-audio", help="Extract mono 16 kHz WAV audio.")
     p.add_argument("video")
     p.add_argument("--output", required=True)
@@ -1559,6 +2313,49 @@ def build_parser():
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--max-frames", type=int, default=0)
     p.set_defaults(func=cmd_sample_frames)
+
+    p = sub.add_parser("prepare-frame-review", help="Create a VLM frame review manifest and prompt from sampled frames.")
+    p.add_argument("--frames-dir", required=True)
+    p.add_argument("--output", required=True, help="Output frame review manifest JSON.")
+    p.add_argument("--prompt-output", default="", help="Optional Markdown prompt for the multimodal model.")
+    p.add_argument("--interval", type=float, default=30, help="Seconds between sampled frames.")
+    p.add_argument("--start-time", type=float, default=0, help="Timestamp for the first sampled frame.")
+    p.add_argument("--relative-to", default="", help="Base directory used for relative frame paths.")
+    p.add_argument("--language", default="Chinese", help="Language requested for captions and object labels.")
+    p.set_defaults(func=cmd_prepare_frame_review)
+
+    p = sub.add_parser("ingest-frame-review", help="Normalize VLM frame review output into frame_observations.json.")
+    p.add_argument("--review", required=True, help="Model-produced frame review JSON.")
+    p.add_argument("--output", required=True, help="Output frame_observations.json.")
+    p.add_argument("--manifest", default="", help="Optional frame review manifest for timestamp/path backfill.")
+    p.set_defaults(func=cmd_ingest_frame_review)
+
+    p = sub.add_parser("refine-plan", help="Select candidate windows for second-pass ASR/VLM/OCR review.")
+    p.add_argument("--analysis", required=True)
+    p.add_argument("--output", required=True)
+    p.add_argument("--min-conditions", type=int, default=1, help="Minimum matched refine conditions required.")
+    p.add_argument("--refine-interval", type=float, default=5, help="Default dense frame interval in seconds.")
+    p.add_argument("--padding", type=float, default=5, help="Seconds of context added around each selected segment.")
+    p.set_defaults(func=cmd_refine_plan)
+
+    p = sub.add_parser("execute-refine-plan", help="Prepare dense frames, prompts, and local audio for refine windows.")
+    p.add_argument("video")
+    p.add_argument("--plan", required=True, help="refine_plan.json produced by refine-plan.")
+    p.add_argument("--output-dir", required=True)
+    p.add_argument("--output-manifest", default="", help="Optional output path for refine_execution_manifest.json.")
+    p.add_argument("--priorities", default="P0,P1", help="Comma-separated priorities to execute, e.g. P0,P1 or P0,P1,P2.")
+    p.add_argument("--language", default="Chinese")
+    p.add_argument("--width", type=int, default=960)
+    p.add_argument("--skip-audio", action="store_true", help="Do not extract per-window audio even when needs_asr is true.")
+    p.set_defaults(func=cmd_execute_refine_plan)
+
+    p = sub.add_parser("merge-refine-results", help="Merge per-window ASR/VLM/OCR outputs back into video_analysis.json.")
+    p.add_argument("--analysis", required=True)
+    p.add_argument("--output", required=True)
+    p.add_argument("--execution-manifest", default="", help="refine_execution_manifest.json from execute-refine-plan.")
+    p.add_argument("--refine-dir", default="", help="Directory containing per-window window.json files.")
+    p.add_argument("--normalize-outputs", action="store_true", help="Write frame_observations.json from frame_review_output.json when needed.")
+    p.set_defaults(func=cmd_merge_refine_results)
 
     p = sub.add_parser("validate-plan", help="Validate clip plan JSON.")
     p.add_argument("plan")

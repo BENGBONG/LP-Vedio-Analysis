@@ -18,6 +18,8 @@ Before running commands, locate the skill directory that contains this `SKILL.md
 2. Inspect the source video.
    - Run `python3 <skill_dir>/scripts/video_understanding.py probe <video> --output <workdir>/metadata.json`.
    - Use duration, dimensions, streams, and frame rate to choose ASR and frame sampling settings.
+   - Optionally generate the recommended processing strategy:
+     `python3 <skill_dir>/scripts/video_understanding.py plan-analysis --metadata <workdir>/metadata.json --scenario <scenario> --budget standard --output <workdir>/analysis_strategy.json`.
 
 3. Extract analysis inputs.
    - Run `python3 <skill_dir>/scripts/video_understanding.py extract-audio <video> --output <workdir>/audio.wav` when audio exists.
@@ -26,9 +28,13 @@ Before running commands, locate the skill directory that contains this `SKILL.md
 
 4. Prepare model observation files.
    - Transcribe audio with available ASR or multimodal model support.
-   - Caption sampled frames and collect OCR when useful.
+   - Prepare sampled frames for VLM/OCR review:
+     `python3 <skill_dir>/scripts/video_understanding.py prepare-frame-review --frames-dir <workdir>/frames --interval 30 --output <workdir>/frame_review_manifest.json --prompt-output <workdir>/frame_review_prompt.md --language Chinese`
+   - Send `<workdir>/frame_review_manifest.json` and `<workdir>/frame_review_prompt.md` to the available multimodal model or OCR workflow.
+   - Save the model response as `<workdir>/frame_review_output.json`.
+   - Normalize model output:
+     `python3 <skill_dir>/scripts/video_understanding.py ingest-frame-review --manifest <workdir>/frame_review_manifest.json --review <workdir>/frame_review_output.json --output <workdir>/frame_observations.json`
    - Save transcript to `<workdir>/transcript.json`.
-   - Save frame observations to `<workdir>/frame_observations.json`.
    - Validate them with `validate-transcript` and `validate-frames`.
 
 5. Build `video_analysis.json`.
@@ -40,6 +46,13 @@ Before running commands, locate the skill directory that contains this `SKILL.md
    - Fix invalid timestamps, overlapping segments, missing titles, missing summaries, and malformed lists.
 
 7. Produce task-specific outputs.
+   - Second-pass plan: `python3 <skill_dir>/scripts/video_understanding.py refine-plan --analysis <workdir>/video_analysis.json --output <workdir>/refine_plan.json`
+   - Use `refine_plan.json` to decide which windows need denser frame sampling, local ASR, VLM review, or OCR. P0 means prioritize, P1 means review when budget allows, P2 means optional.
+   - Prepare selected refine windows:
+     `python3 <skill_dir>/scripts/video_understanding.py execute-refine-plan <video> --plan <workdir>/refine_plan.json --output-dir <workdir>/refine --priorities P0,P1`
+   - Run ASR and VLM/OCR outside this script for each refine window, saving `transcript.json` and/or `frame_review_output.json` in the window directory.
+   - Merge refine outputs:
+     `python3 <skill_dir>/scripts/video_understanding.py merge-refine-results --analysis <workdir>/video_analysis.json --execution-manifest <workdir>/refine/refine_execution_manifest.json --normalize-outputs --output <workdir>/video_analysis.refined.json`
    - Summary: `python3 <skill_dir>/scripts/video_understanding.py summary --analysis <workdir>/video_analysis.json --output <workdir>/summary.md`
    - Search index: `python3 <skill_dir>/scripts/video_understanding.py search-index --analysis <workdir>/video_analysis.json --output <workdir>/search_index.jsonl`
    - Optional clip plan: `python3 <skill_dir>/scripts/video_understanding.py derive-clips --analysis <workdir>/video_analysis.json --output <workdir>/clip_plan.json`
@@ -76,6 +89,7 @@ The script performs deterministic media work. The agent or connected model must 
 - Long videos over 30 minutes: use ASR and segment summaries first; run multimodal review only on candidate windows.
 - For talks, meetings, and courses, transcript is the primary signal.
 - For sports, games, demos, UI walkthroughs, and silent videos, increase visual sampling and frame captioning.
+- Use `refine-plan` after the first `video_analysis.json` to avoid spending multimodal budget on every segment.
 
 ## Output Contracts
 

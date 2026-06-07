@@ -1,0 +1,16 @@
+{
+  "format": {
+    "duration": "20.1",
+    "tags": {
+      "title": "Sample Product Video"
+    }
+  },
+  "streams": [
+    {
+      "codec_type": "video",
+      "width": 540,
+      "height": 960,
+      "avg_frame_rate": "30/1"
+    }
+  ]
+}

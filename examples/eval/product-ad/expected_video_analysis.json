@@ -1,0 +1,115 @@
+{
+  "scenario": "summary",
+  "source": {
+    "title": "Sample Product Video",
+    "path": "../../demo-input/original-product-video.mp4",
+    "duration": 20.1,
+    "width": 540,
+    "height": 960,
+    "fps": "30/1",
+    "has_audio": false,
+    "metadata_path": "metadata.json"
+  },
+  "raw_inputs": {
+    "metadata_path": "metadata.json",
+    "transcript_path": "transcript.json",
+    "frame_observations_path": "frame_observations.json"
+  },
+  "observations": {
+    "transcript_count": 3,
+    "frame_count": 3
+  },
+  "summary": "A short social product video moves from skeptical hook to product benefits and a closing recommendation.",
+  "transcript": [
+    {
+      "start": 2.0,
+      "end": 5.2,
+      "speaker": "Creator",
+      "text": "Okay, aggressive marketing, but I'm listening."
+    },
+    {
+      "start": 6.0,
+      "end": 11.5,
+      "speaker": "Creator",
+      "text": "Raspberry rose, only five grams of sugar, prebiotic stuff for my gut?"
+    },
+    {
+      "start": 13.0,
+      "end": 20.1,
+      "speaker": "Creator",
+      "text": "Wait, that's actually fire. Seriously though, go grab a case."
+    }
+  ],
+  "frames": [
+    {
+      "timestamp": 2.0,
+      "path": "frames/frame_00001.jpg",
+      "caption": "Creator reacts to the can on a couch.",
+      "ocr": [],
+      "objects": ["creator", "can", "couch"]
+    },
+    {
+      "timestamp": 8.0,
+      "path": "frames/frame_00002.jpg",
+      "caption": "Creator holds the product can clearly in frame.",
+      "ocr": ["Raspberry Rose"],
+      "objects": ["creator", "can"]
+    },
+    {
+      "timestamp": 17.0,
+      "path": "frames/frame_00003.jpg",
+      "caption": "Product is shown close to camera during the recommendation.",
+      "ocr": [],
+      "objects": ["can", "hand"]
+    }
+  ],
+  "segments": [
+    {
+      "id": "seg_0001",
+      "start": 0,
+      "end": 5.2,
+      "title": "Skeptical hook",
+      "summary": "The creator reacts with skepticism but stays curious.",
+      "topics": ["hook", "creator reaction"],
+      "visuals": ["creator on couch", "product appears early"],
+      "importance": 4
+    },
+    {
+      "id": "seg_0002",
+      "start": 5.2,
+      "end": 12.4,
+      "title": "Product benefits",
+      "summary": "The video quickly stacks flavor, low sugar, and prebiotic claims.",
+      "topics": ["product benefit", "low sugar", "prebiotics"],
+      "visuals": ["can visible", "talking head"],
+      "importance": 5
+    },
+    {
+      "id": "seg_0003",
+      "start": 12.4,
+      "end": 20.1,
+      "title": "Taste proof and CTA",
+      "summary": "The creator tastes the drink, endorses it, and gives a direct recommendation.",
+      "topics": ["taste test", "CTA"],
+      "visuals": ["drinking moment", "product close-up"],
+      "importance": 5
+    }
+  ],
+  "moments": [],
+  "entities": [
+    {
+      "name": "Raspberry Rose",
+      "type": "product_flavor",
+      "timestamps": [8.0]
+    }
+  ],
+  "claims": [
+    {
+      "claim": "The drink has five grams of sugar.",
+      "timestamp": 6.8,
+      "verification_status": "not_checked"
+    }
+  ],
+  "actions": [],
+  "questions": []
+}

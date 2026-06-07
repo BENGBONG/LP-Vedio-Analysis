@@ -50,6 +50,16 @@ Inspect media:
 python3 scripts/video_understanding.py probe examples/demo-input/original-product-video.mp4 --output work/demo/metadata.json
 ```
 
+Choose a cost-aware processing strategy from metadata:
+
+```bash
+python3 scripts/video_understanding.py plan-analysis \
+  --metadata work/demo/metadata.json \
+  --scenario report \
+  --budget standard \
+  --output work/demo/analysis_strategy.json
+```
+
 Extract audio and frames:
 
 ```bash
@@ -62,6 +72,23 @@ Validate model-produced transcript and frame observations:
 ```bash
 python3 scripts/video_understanding.py validate-transcript assets/sample_transcript.json
 python3 scripts/video_understanding.py validate-frames assets/sample_frame_observations.json
+```
+
+Prepare sampled frames for multimodal review, then ingest the model output:
+
+```bash
+python3 scripts/video_understanding.py prepare-frame-review \
+  --frames-dir work/demo/frames \
+  --interval 30 \
+  --output work/demo/frame_review_manifest.json \
+  --prompt-output work/demo/frame_review_prompt.md \
+  --language Chinese
+
+# After your VLM writes work/demo/frame_review_output.json:
+python3 scripts/video_understanding.py ingest-frame-review \
+  --manifest work/demo/frame_review_manifest.json \
+  --review work/demo/frame_review_output.json \
+  --output work/demo/frame_observations.json
 ```
 
 Build `video_analysis.json` from the model outputs:
@@ -79,6 +106,35 @@ Validate a general video analysis artifact:
 
 ```bash
 python3 scripts/video_understanding.py validate-analysis assets/sample_video_analysis.json
+```
+
+Select candidate windows for second-pass review:
+
+```bash
+python3 scripts/video_understanding.py refine-plan \
+  --analysis work/demo/video_analysis.json \
+  --output work/demo/refine_plan.json
+```
+
+The refine plan marks windows as `P0`, `P1`, or `P2` based on rules such as high segment importance, high moment score, visual or uncertainty keywords, missing transcript despite audio, and open questions. Use those windows for denser frame sampling and local ASR/VLM/OCR review.
+
+Prepare dense second-pass materials from the refine plan:
+
+```bash
+python3 scripts/video_understanding.py execute-refine-plan input.mp4 \
+  --plan work/demo/refine_plan.json \
+  --output-dir work/demo/refine \
+  --priorities P0,P1
+```
+
+For each selected window this writes dense `frames/`, `audio.wav` when ASR is needed, `frame_review_manifest.json`, `frame_review_prompt.md`, and `window.json`. After ASR and VLM/OCR outputs are saved in those window folders, merge them back:
+
+```bash
+python3 scripts/video_understanding.py merge-refine-results \
+  --analysis work/demo/video_analysis.json \
+  --execution-manifest work/demo/refine/refine_execution_manifest.json \
+  --normalize-outputs \
+  --output work/demo/video_analysis.refined.json
 ```
 
 Derive outputs:
@@ -127,15 +183,55 @@ Read:
 ```text
 video
  -> ffprobe metadata
+ -> plan-analysis
  -> ASR transcript with timestamps
- -> sampled frames + captions + OCR
+ -> sampled frames
+ -> VLM frame review + OCR
  -> build-segments
  -> video_analysis.json
+ -> refine-plan
+ -> dense candidate-window review
+ -> refined video_analysis.json
  -> summary / search index / report / Q&A
  -> optional selected moments and ffmpeg clips
 ```
 
 For long videos, avoid sending the whole video to a strong multimodal model at once. Use ASR and low-frequency frame sampling first, then run multimodal review only on candidate windows.
+
+The model handoff layer is explicit:
+
+```text
+frames/*.jpg
+ -> prepare-frame-review
+ -> frame_review_manifest.json + frame_review_prompt.md
+ -> external VLM/OCR model
+ -> frame_review_output.json
+ -> ingest-frame-review
+ -> frame_observations.json
+```
+
+Second-pass review is also explicit:
+
+```text
+video_analysis.json
+ -> refine-plan
+ -> refine_plan.json
+ -> execute-refine-plan
+ -> per-window dense frames + local audio + frame review prompts
+ -> external ASR/VLM/OCR outputs
+ -> merge-refine-results
+ -> refined video_analysis.json
+```
+
+## Evaluation
+
+Golden fixtures live in `examples/eval/`. They validate the stable parts of the workflow without calling ASR, OCR, VLMs, `ffmpeg`, or `ffprobe`:
+
+```bash
+python3 scripts/evaluate_fixtures.py
+```
+
+Each fixture contains a `manifest.json`, stable metadata, transcript, frame observations, and a human-reviewed `expected_video_analysis.json`. Add real project videos as new fixture folders once you have representative examples.
 
 ## Requirements
 
@@ -164,7 +260,7 @@ What we changed:
 - Added `video_analysis.json` as the primary analysis artifact.
 - Added `references/video-analysis-schema.md`.
 - Added `scripts/video_understanding.py` with `init-analysis`, `validate-analysis`, `summary`, `search-index`, and `derive-clips`.
-- Added explicit transcript/frame-observation validation, `build-segments`, `moments`, and richer Video RAG JSONL output.
+- Added explicit transcript/frame-observation validation, VLM frame-review handoff commands, `build-segments`, `moments`, and richer Video RAG JSONL output.
 - Kept `scripts/video_highlight.py` only as a backward-compatible wrapper.
 - Replaced the old highlight-first branding with LP Video Analysis branding.
 - Added `assets/sample_video_analysis.json` and unit tests.
