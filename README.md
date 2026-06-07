@@ -28,7 +28,20 @@
 
 ## 快速开始
 
-安装或克隆完整仓库，包含 `SKILL.md`、`scripts/`、`references/`、`assets/`、`agents/` 和 `examples/`。
+通过 npm 安装：
+
+```bash
+npm install -g lp-video-analysis-skill
+```
+
+安装后使用：
+
+```bash
+lp-video-analysis --help
+lp-video-analysis init-analysis --output work/demo --scenario summary
+```
+
+也可以从源码运行。克隆完整仓库，包含 `SKILL.md`、`scripts/`、`references/`、`assets/`、`agents/` 和 `examples/`，然后使用 `python3 scripts/video_understanding.py ...`。
 
 然后把视频交给 Agent，并提出类似请求：
 
@@ -65,6 +78,8 @@ video
 长视频不要一次性全部交给强多模态模型。推荐先用 ASR 和低频抽帧建立全片时间轴，再只对候选片段做二次精看。
 
 ## 常用命令
+
+如果已经通过 npm 全局安装，下面命令里的 `python3 scripts/video_understanding.py` 都可以替换成 `lp-video-analysis`。
 
 创建分析工作区：
 

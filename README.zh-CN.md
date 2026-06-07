@@ -23,11 +23,28 @@
 
 ## 快速开始
 
+通过 npm 安装：
+
+```bash
+npm install -g lp-video-analysis-skill
+```
+
+安装后使用：
+
+```bash
+lp-video-analysis --help
+lp-video-analysis init-analysis --output work/demo --scenario summary
+```
+
+也可以从源码运行。克隆完整仓库后，使用 `python3 scripts/video_understanding.py ...`。
+
 创建分析工作区：
 
 ```bash
 python3 scripts/video_understanding.py init-analysis --output work/demo --scenario summary
 ```
+
+如果已经通过 npm 全局安装，下面命令里的 `python3 scripts/video_understanding.py` 都可以替换成 `lp-video-analysis`。
 
 `init-analysis` 会同时创建 `model_config.json`。这是模型配置层，默认是 `handoff` 模式：脚本会生成 ASR/VLM/OCR 请求文件和 prompt，但不会假装已经完成模型理解。后续可以把 provider 改成 `command` 模式，接你自己的本地 ASR/VLM/OCR 脚本。需要单独重建配置时可以运行：
 
