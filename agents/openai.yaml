@@ -1,7 +1,7 @@
 interface:
-  display_name: "Video Highlight Skill"
-  short_description: "Analyze long videos and produce highlight recaps."
-  default_prompt: "Use $video-highlight-skill to analyze a long video, select highlights, cut clips, and generate a recap package."
+  display_name: "LP Video Analysis"
+  short_description: "Analyze videos into summaries, indexes, reports, Q&A context, and highlight clips."
+  default_prompt: "Use $video-understanding-skill to analyze this video, create video_analysis.json, produce useful derived outputs, and cut highlights if needed."
 
 policy:
   allow_implicit_invocation: true

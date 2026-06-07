@@ -1,6 +1,8 @@
-# Analysis Schema
+# Highlight Clip Plan Schema
 
-Use this reference when preparing prompts, validating model output, or extending the skill to a new video scenario.
+Use this reference when preparing or validating `clip_plan.json` for highlight clipping and recap page generation.
+
+For general video understanding, first produce `video_analysis.json` using `references/video-analysis-schema.md`, then derive a clip plan when highlight clips are needed.
 
 ## Strict JSON Shape
 
