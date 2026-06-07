@@ -228,6 +228,39 @@ class VideoUnderstandingTest(unittest.TestCase):
             self.assertEqual(merged["observations"]["refined_frame_count"], 1)
             self.assertTrue(observations_path.exists())
 
+    def test_default_model_config_is_valid(self):
+        config = video_understanding.default_model_config(language="Chinese")
+        self.assertEqual(video_understanding.validate_model_config_data(config), [])
+        status = video_understanding.model_config_status(config)
+        self.assertEqual(len(status["tasks"]), 3)
+        self.assertTrue(any(item["task"] == "asr" and item["mode"] == "handoff" for item in status["tasks"]))
+
+    def test_run_model_task_handoff_writes_request_and_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            request_path = root / "asr_request.json"
+            prompt_path = root / "asr_prompt.md"
+            result = video_understanding.run_model_task(
+                video_understanding.default_model_config(),
+                "asr",
+                {"audio": "audio.wav", "output": "transcript.json"},
+                request_output=request_path,
+                prompt_output=prompt_path,
+                language="Chinese",
+            )
+            self.assertEqual(result["status"], "handoff")
+            request = video_understanding.load_plan(request_path)
+            self.assertEqual(request["task"], "asr")
+            self.assertIn("transcript", request["expected_output"])
+            self.assertIn("ASR Task", prompt_path.read_text(encoding="utf-8"))
+
+    def test_command_model_provider_requires_command(self):
+        config = video_understanding.default_model_config()
+        config["providers"]["asr"]["mode"] = "command"
+        config["providers"]["asr"]["command"] = []
+        errors = video_understanding.validate_model_config_data(config)
+        self.assertTrue(any("command is required" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

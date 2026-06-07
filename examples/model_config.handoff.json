@@ -1,0 +1,30 @@
+{
+  "schema": "model_config.v1",
+  "default_language": "Chinese",
+  "providers": {
+    "asr": {
+      "mode": "handoff",
+      "name": "external-asr",
+      "description": "Transcribe audio into timestamped transcript JSON.",
+      "command": [],
+      "api_key_env": "",
+      "output_contract": "transcript.v1"
+    },
+    "frame-review": {
+      "mode": "handoff",
+      "name": "external-vlm",
+      "description": "Review sampled frames with VLM/OCR and return frame observations.",
+      "command": [],
+      "api_key_env": "",
+      "output_contract": "frame_observations.v1"
+    },
+    "ocr": {
+      "mode": "handoff",
+      "name": "external-ocr",
+      "description": "Extract visible text from frames when a separate OCR provider is used.",
+      "command": [],
+      "api_key_env": "",
+      "output_contract": "ocr_observations.v1"
+    }
+  }
+}

@@ -2,6 +2,7 @@
 import argparse
 import html
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -9,6 +10,40 @@ from pathlib import Path
 
 
 SCENARIOS = {"clips", "highlight", "meeting", "course", "live", "report", "summary", "search", "qa"}
+MODEL_TASKS = {"asr", "frame-review", "ocr"}
+MODEL_PROVIDER_MODES = {"handoff", "command", "disabled"}
+
+
+DEFAULT_MODEL_CONFIG = {
+    "schema": "model_config.v1",
+    "default_language": "Chinese",
+    "providers": {
+        "asr": {
+            "mode": "handoff",
+            "name": "external-asr",
+            "description": "Transcribe audio into timestamped transcript JSON.",
+            "command": [],
+            "api_key_env": "",
+            "output_contract": "transcript.v1",
+        },
+        "frame-review": {
+            "mode": "handoff",
+            "name": "external-vlm",
+            "description": "Review sampled frames with VLM/OCR and return frame observations.",
+            "command": [],
+            "api_key_env": "",
+            "output_contract": "frame_observations.v1",
+        },
+        "ocr": {
+            "mode": "handoff",
+            "name": "external-ocr",
+            "description": "Extract visible text from frames when a separate OCR provider is used.",
+            "command": [],
+            "api_key_env": "",
+            "output_contract": "ocr_observations.v1",
+        },
+    },
+}
 
 
 def run_command(args):
@@ -18,6 +53,11 @@ def run_command(args):
         raise SystemExit(f"Missing executable: {args[0]}") from exc
     except subprocess.CalledProcessError as exc:
         raise SystemExit(f"Command failed with exit code {exc.returncode}: {' '.join(args)}") from exc
+
+
+def write_json(path, data):
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def parse_time(value):
@@ -73,6 +113,181 @@ def load_plan(path):
     if isinstance(data, list):
         data = {"scenario": "clips", "source_title": "", "summary": "", "segments": [], "moments": data}
     return data
+
+
+def default_model_config(language="Chinese"):
+    config = json.loads(json.dumps(DEFAULT_MODEL_CONFIG, ensure_ascii=False))
+    config["default_language"] = language
+    return config
+
+
+def load_model_config(path="", language="Chinese"):
+    if path:
+        return load_plan(path)
+    return default_model_config(language=language)
+
+
+def validate_model_config_data(config):
+    errors = []
+    if not isinstance(config, dict):
+        return ["model config must be a JSON object"]
+    if config.get("schema") not in (None, "model_config.v1"):
+        errors.append("schema must be model_config.v1")
+    providers = config.get("providers")
+    if not isinstance(providers, dict):
+        errors.append("providers must be an object")
+        return errors
+    for task, provider in providers.items():
+        prefix = f"providers.{task}"
+        if task not in MODEL_TASKS:
+            errors.append(f"{prefix}: unknown task")
+        if not isinstance(provider, dict):
+            errors.append(f"{prefix}: provider must be an object")
+            continue
+        mode = provider.get("mode", "handoff")
+        if mode not in MODEL_PROVIDER_MODES:
+            errors.append(f"{prefix}.mode must be one of {', '.join(sorted(MODEL_PROVIDER_MODES))}")
+        command = provider.get("command", [])
+        if command and not (isinstance(command, list) and all(isinstance(item, str) for item in command)):
+            errors.append(f"{prefix}.command must be a list of strings")
+        if mode == "command" and not command:
+            errors.append(f"{prefix}.command is required when mode is command")
+    return errors
+
+
+def model_provider(config, task):
+    providers = config.get("providers") or {}
+    provider = providers.get(task)
+    if provider is None:
+        provider = default_model_config(config.get("default_language", "Chinese"))["providers"].get(task, {})
+    return provider
+
+
+def model_config_status(config):
+    providers = config.get("providers") or {}
+    tasks = []
+    for task in sorted(MODEL_TASKS):
+        provider = model_provider(config, task)
+        api_key_env = provider.get("api_key_env") or ""
+        tasks.append({
+            "task": task,
+            "mode": provider.get("mode", "handoff"),
+            "name": provider.get("name", ""),
+            "has_command": bool(provider.get("command")),
+            "api_key_env": api_key_env,
+            "api_key_available": bool(api_key_env and os.environ.get(api_key_env)),
+            "output_contract": provider.get("output_contract", ""),
+        })
+    return {
+        "schema": "model_status.v1",
+        "default_language": config.get("default_language", "Chinese"),
+        "tasks": tasks,
+    }
+
+
+def model_task_prompt(task, variables, language):
+    if task == "asr":
+        return f"""# ASR Task
+
+Transcribe this audio file into timestamped JSON.
+
+Audio: {variables.get("audio", "")}
+Language: {language}
+
+Return strict JSON:
+
+```json
+{{
+  "transcript": [
+    {{"start": 0.0, "end": 3.2, "text": "spoken text"}}
+  ]
+}}
+```
+
+Rules:
+
+- Use seconds for `start` and `end`.
+- Keep transcript items ordered and non-overlapping.
+- Use an empty `transcript` list if speech is not intelligible.
+"""
+    if task == "frame-review":
+        prompt_path = variables.get("prompt", "")
+        if prompt_path and Path(prompt_path).exists():
+            return Path(prompt_path).read_text(encoding="utf-8")
+        manifest = load_plan(variables["manifest"]) if variables.get("manifest") else {"frames": []}
+        return frame_review_prompt(manifest, language)
+    if task == "ocr":
+        return f"""# OCR Task
+
+Review frames and extract visible text.
+
+Frames directory: {variables.get("frames_dir", "")}
+Manifest: {variables.get("manifest", "")}
+Language: {language}
+
+Return strict JSON:
+
+```json
+{{
+  "frames": [
+    {{"timestamp": 0.0, "path": "frames/frame_00001.jpg", "ocr": ["visible text"]}}
+  ]
+}}
+```
+"""
+    raise ValueError(f"unknown model task: {task}")
+
+
+def model_request_payload(task, provider, variables, language):
+    return {
+        "schema": "model_request.v1",
+        "task": task,
+        "provider": {
+            "name": provider.get("name", ""),
+            "mode": provider.get("mode", "handoff"),
+            "output_contract": provider.get("output_contract", ""),
+        },
+        "language": language,
+        "inputs": variables,
+        "expected_output": variables.get("output", ""),
+        "prompt": model_task_prompt(task, variables, language),
+    }
+
+
+def substitute_command_args(command, variables):
+    safe_values = {key: str(value) for key, value in variables.items() if value is not None}
+    return [item.format(**safe_values) for item in command]
+
+
+def run_model_task(config, task, variables, request_output="", prompt_output="", language=""):
+    if task not in MODEL_TASKS:
+        raise ValueError(f"unknown model task: {task}")
+    errors = validate_model_config_data(config)
+    if errors:
+        raise ValueError("; ".join(errors))
+    language = language or config.get("default_language", "Chinese")
+    provider = model_provider(config, task)
+    mode = provider.get("mode", "handoff")
+    request = model_request_payload(task, provider, variables, language)
+    if request_output:
+        write_json(request_output, request)
+    if prompt_output:
+        Path(prompt_output).parent.mkdir(parents=True, exist_ok=True)
+        Path(prompt_output).write_text(request["prompt"], encoding="utf-8")
+    if mode == "disabled":
+        return {"status": "skipped", "mode": mode, "request": request}
+    if mode == "handoff":
+        return {"status": "handoff", "mode": mode, "request": request}
+    command_vars = dict(variables)
+    command_vars.update({
+        "language": language,
+        "task": task,
+        "request": request_output,
+        "prompt_output": prompt_output,
+    })
+    command = substitute_command_args(provider.get("command") or [], command_vars)
+    run_command(command)
+    return {"status": "completed", "mode": mode, "command": command, "request": request}
 
 
 def get_moments(plan):
@@ -1209,6 +1424,7 @@ def cmd_init_analysis(args):
         "questions": [],
     }
     (out / "video_analysis.json").write_text(json.dumps(analysis, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out / "model_config.json").write_text(json.dumps(default_model_config(language="Chinese"), ensure_ascii=False, indent=2), encoding="utf-8")
     prompt = (
         "Analyze the video inputs and return strict JSON matching references/video-analysis-schema.md.\n"
         f"Scenario: {args.scenario}\n"
@@ -1240,6 +1456,108 @@ def cmd_init_project(args):
     )
     (out / "model_prompt.txt").write_text(prompt, encoding="utf-8")
     print(f"Created project at {out}")
+
+
+def cmd_init_model_config(args):
+    write_json(args.output, default_model_config(language=args.language))
+    print(f"Wrote model config to {args.output}")
+
+
+def cmd_validate_model_config(args):
+    config = load_model_config(args.config)
+    errors = validate_model_config_data(config)
+    if errors:
+        print("Model config validation failed:", file=sys.stderr)
+        for error in errors:
+            print(f"- {error}", file=sys.stderr)
+        raise SystemExit(1)
+    print("Model config is valid")
+
+
+def cmd_model_status(args):
+    config = load_model_config(args.config, language=args.language)
+    status = model_config_status(config)
+    if args.output:
+        write_json(args.output, status)
+        print(f"Wrote model status to {args.output}")
+    else:
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+
+
+def cmd_run_asr(args):
+    config = load_model_config(args.config, language=args.language)
+    request_output = args.request_output or str(Path(args.output).with_suffix(".request.json"))
+    prompt_output = args.prompt_output or str(Path(args.output).with_suffix(".prompt.md"))
+    result = run_model_task(
+        config,
+        "asr",
+        {
+            "audio": args.audio,
+            "output": args.output,
+        },
+        request_output=request_output,
+        prompt_output=prompt_output,
+        language=args.language,
+    )
+    print(f"ASR provider status: {result['status']}")
+    if result["status"] == "handoff":
+        print(f"Wrote ASR request to {request_output}")
+        print(f"Wrote ASR prompt to {prompt_output}")
+
+
+def cmd_run_frame_review(args):
+    config = load_model_config(args.config, language=args.language)
+    request_output = args.request_output or str(Path(args.output).with_suffix(".request.json"))
+    prompt_output = args.prompt_output or str(Path(args.output).with_suffix(".prompt.md"))
+    result = run_model_task(
+        config,
+        "frame-review",
+        {
+            "manifest": args.manifest,
+            "prompt": args.prompt,
+            "frames_dir": args.frames_dir,
+            "output": args.output,
+        },
+        request_output=request_output,
+        prompt_output=prompt_output,
+        language=args.language,
+    )
+    if args.normalize_output and Path(args.output).exists():
+        manifest = load_plan(args.manifest) if args.manifest else None
+        frames = normalize_frame_review_payload(load_plan(args.output), manifest=manifest)
+        observations_output = args.observations_output or str(Path(args.output).with_name("frame_observations.json"))
+        write_json(observations_output, {
+            "schema": "frame_observations.v1",
+            "source_review": args.output,
+            "frames": frames,
+        })
+        print(f"Wrote normalized frame observations to {observations_output}")
+    print(f"Frame review provider status: {result['status']}")
+    if result["status"] == "handoff":
+        print(f"Wrote frame review request to {request_output}")
+        print(f"Wrote frame review prompt to {prompt_output}")
+
+
+def cmd_run_ocr(args):
+    config = load_model_config(args.config, language=args.language)
+    request_output = args.request_output or str(Path(args.output).with_suffix(".request.json"))
+    prompt_output = args.prompt_output or str(Path(args.output).with_suffix(".prompt.md"))
+    result = run_model_task(
+        config,
+        "ocr",
+        {
+            "manifest": args.manifest,
+            "frames_dir": args.frames_dir,
+            "output": args.output,
+        },
+        request_output=request_output,
+        prompt_output=prompt_output,
+        language=args.language,
+    )
+    print(f"OCR provider status: {result['status']}")
+    if result["status"] == "handoff":
+        print(f"Wrote OCR request to {request_output}")
+        print(f"Wrote OCR prompt to {prompt_output}")
 
 
 def cmd_probe(args):
@@ -2288,6 +2606,21 @@ def build_parser():
     p.add_argument("--scenario", choices=sorted(SCENARIOS), default="clips")
     p.set_defaults(func=cmd_init_project)
 
+    p = sub.add_parser("init-model-config", help="Create a model provider config for ASR/VLM/OCR handoff or command execution.")
+    p.add_argument("--output", required=True)
+    p.add_argument("--language", default="Chinese")
+    p.set_defaults(func=cmd_init_model_config)
+
+    p = sub.add_parser("validate-model-config", help="Validate model_config.json.")
+    p.add_argument("config")
+    p.set_defaults(func=cmd_validate_model_config)
+
+    p = sub.add_parser("model-status", help="Show configured ASR/VLM/OCR provider modes.")
+    p.add_argument("--config", default="")
+    p.add_argument("--language", default="Chinese")
+    p.add_argument("--output", default="")
+    p.set_defaults(func=cmd_model_status)
+
     p = sub.add_parser("probe", help="Write ffprobe metadata JSON.")
     p.add_argument("video")
     p.add_argument("--output", required=True)
@@ -2314,6 +2647,15 @@ def build_parser():
     p.add_argument("--max-frames", type=int, default=0)
     p.set_defaults(func=cmd_sample_frames)
 
+    p = sub.add_parser("run-asr", help="Run or prepare configured ASR for an audio file.")
+    p.add_argument("--config", default="")
+    p.add_argument("--audio", required=True)
+    p.add_argument("--output", required=True, help="Expected transcript.json output path.")
+    p.add_argument("--request-output", default="")
+    p.add_argument("--prompt-output", default="")
+    p.add_argument("--language", default="Chinese")
+    p.set_defaults(func=cmd_run_asr)
+
     p = sub.add_parser("prepare-frame-review", help="Create a VLM frame review manifest and prompt from sampled frames.")
     p.add_argument("--frames-dir", required=True)
     p.add_argument("--output", required=True, help="Output frame review manifest JSON.")
@@ -2329,6 +2671,29 @@ def build_parser():
     p.add_argument("--output", required=True, help="Output frame_observations.json.")
     p.add_argument("--manifest", default="", help="Optional frame review manifest for timestamp/path backfill.")
     p.set_defaults(func=cmd_ingest_frame_review)
+
+    p = sub.add_parser("run-frame-review", help="Run or prepare configured VLM frame review.")
+    p.add_argument("--config", default="")
+    p.add_argument("--manifest", required=True)
+    p.add_argument("--prompt", default="")
+    p.add_argument("--frames-dir", default="")
+    p.add_argument("--output", required=True, help="Expected frame_review_output.json path.")
+    p.add_argument("--request-output", default="")
+    p.add_argument("--prompt-output", default="")
+    p.add_argument("--language", default="Chinese")
+    p.add_argument("--normalize-output", action="store_true", help="Normalize frame review output if it already exists.")
+    p.add_argument("--observations-output", default="")
+    p.set_defaults(func=cmd_run_frame_review)
+
+    p = sub.add_parser("run-ocr", help="Run or prepare configured OCR for sampled frames.")
+    p.add_argument("--config", default="")
+    p.add_argument("--manifest", default="")
+    p.add_argument("--frames-dir", required=True)
+    p.add_argument("--output", required=True, help="Expected OCR output JSON path.")
+    p.add_argument("--request-output", default="")
+    p.add_argument("--prompt-output", default="")
+    p.add_argument("--language", default="Chinese")
+    p.set_defaults(func=cmd_run_ocr)
 
     p = sub.add_parser("refine-plan", help="Select candidate windows for second-pass ASR/VLM/OCR review.")
     p.add_argument("--analysis", required=True)

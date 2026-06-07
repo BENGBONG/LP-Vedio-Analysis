@@ -13,7 +13,9 @@ Before running commands, locate the skill directory that contains this `SKILL.md
 
 1. Create a work directory.
    - Run `python3 <skill_dir>/scripts/video_understanding.py init-analysis --output <workdir> --scenario <summary|meeting|course|live|report|search|qa>`.
+   - `init-analysis` also creates `<workdir>/model_config.json`. To recreate only the model config, run `python3 <skill_dir>/scripts/video_understanding.py init-model-config --output <workdir>/model_config.json --language Chinese`.
    - Keep generated files in that work directory.
+   - Treat `<workdir>/model_config.json` as the provider layer for ASR, frame-review VLM, and OCR. Default providers use `handoff` mode; they generate request/prompt files and wait for an external model result. Switch a provider to `command` mode only when a real local model command or wrapper script is configured.
 
 2. Inspect the source video.
    - Run `python3 <skill_dir>/scripts/video_understanding.py probe <video> --output <workdir>/metadata.json`.
@@ -27,10 +29,14 @@ Before running commands, locate the skill directory that contains this `SKILL.md
    - Lower `--interval` to 5-15 seconds for product demos, UI walkthroughs, sports, games, or visually dense videos.
 
 4. Prepare model observation files.
-   - Transcribe audio with available ASR or multimodal model support.
+   - Transcribe audio through the configured model layer:
+     `python3 <skill_dir>/scripts/video_understanding.py run-asr --config <workdir>/model_config.json --audio <workdir>/audio.wav --output <workdir>/transcript.json --language Chinese`
+   - If the ASR provider is still in `handoff` mode, send the generated request/prompt to the available ASR model and save the model response as `<workdir>/transcript.json`.
    - Prepare sampled frames for VLM/OCR review:
      `python3 <skill_dir>/scripts/video_understanding.py prepare-frame-review --frames-dir <workdir>/frames --interval 30 --output <workdir>/frame_review_manifest.json --prompt-output <workdir>/frame_review_prompt.md --language Chinese`
-   - Send `<workdir>/frame_review_manifest.json` and `<workdir>/frame_review_prompt.md` to the available multimodal model or OCR workflow.
+   - Run or prepare frame review through the configured model layer:
+     `python3 <skill_dir>/scripts/video_understanding.py run-frame-review --config <workdir>/model_config.json --manifest <workdir>/frame_review_manifest.json --prompt <workdir>/frame_review_prompt.md --frames-dir <workdir>/frames --output <workdir>/frame_review_output.json --language Chinese`
+   - If the frame-review provider is still in `handoff` mode, send `<workdir>/frame_review_manifest.json` and `<workdir>/frame_review_prompt.md` to the available multimodal model or OCR workflow.
    - Save the model response as `<workdir>/frame_review_output.json`.
    - Normalize model output:
      `python3 <skill_dir>/scripts/video_understanding.py ingest-frame-review --manifest <workdir>/frame_review_manifest.json --review <workdir>/frame_review_output.json --output <workdir>/frame_observations.json`
@@ -71,6 +77,29 @@ The script performs deterministic media work. The agent or connected model must 
 - OCR when slides, UI, or text overlays matter.
 - Refinement of script-generated segment summaries and topic labels.
 - Scenario-specific extraction such as decisions, action items, claims, questions, chapters, and selected moments.
+
+## Model Configuration Layer
+
+The model layer is explicit and file-based.
+
+- Config file: `<workdir>/model_config.json`
+- Example: `examples/model_config.handoff.json`
+- Validate it with `python3 <skill_dir>/scripts/video_understanding.py validate-model-config <workdir>/model_config.json`.
+- Inspect provider status with `python3 <skill_dir>/scripts/video_understanding.py model-status --config <workdir>/model_config.json`.
+
+Supported provider tasks:
+
+- `asr`: produces `transcript.json`.
+- `frame-review`: produces `frame_review_output.json`, then `ingest-frame-review` normalizes it into `frame_observations.json`.
+- `ocr`: optional separate OCR provider for visually text-heavy frames.
+
+Supported provider modes:
+
+- `handoff`: default. The script writes a model request JSON and Markdown prompt. An external model or Agent capability must produce the expected output file.
+- `command`: the script runs a configured command list with placeholders such as `{audio}`, `{manifest}`, `{frames_dir}`, `{output}`, `{language}`, `{request}`, and `{prompt_output}`.
+- `disabled`: the task is intentionally skipped.
+
+Do not invent ASR/VLM/OCR results. If a provider is in `handoff` mode and no output file exists yet, report that the model step is pending.
 
 ## Scenario Routing
 

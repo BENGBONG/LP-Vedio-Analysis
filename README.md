@@ -17,6 +17,7 @@
 - 校验外部 ASR 转写和画面观察文件。
 - 从转写、画面观察和 metadata 自动构建语义分段。
 - 定义通用的 `video_analysis.json` 主产物。
+- 通过 `model_config.json` 配置 ASR、VLM frame review 和 OCR provider。
 - 根据视频时长、场景和预算自动选择粗看策略。
 - 对重点片段生成自动二次精看计划。
 - 只对候选窗口做加密抽帧和局部 ASR/VLM/OCR，控制多模态 token 消耗。
@@ -45,11 +46,12 @@ Use video-understanding-skill to analyze this video, create video_analysis.json,
 
 ```text
 video
+ -> model_config.json 配置 ASR/VLM/OCR provider
  -> ffprobe metadata
  -> plan-analysis 自动选择粗看策略
- -> ASR transcript with timestamps
+ -> run-asr 生成或执行 ASR 任务
  -> sampled frames
- -> VLM frame review + OCR
+ -> run-frame-review / run-ocr 生成或执行 VLM/OCR 任务
  -> build-segments
  -> video_analysis.json
  -> refine-plan 自动判断重点窗口
@@ -68,6 +70,12 @@ video
 
 ```bash
 python3 scripts/video_understanding.py init-analysis --output work/demo --scenario summary
+```
+
+`init-analysis` 会同时创建 `model_config.json`。这是模型配置层，默认是 `handoff` 模式：脚本会生成 ASR/VLM/OCR 请求文件和 prompt，但不会假装已经完成模型理解。后续可以把 provider 改成 `command` 模式，接你自己的本地 ASR/VLM/OCR 脚本。需要单独重建配置时可以运行：
+
+```bash
+python3 scripts/video_understanding.py init-model-config --output work/demo/model_config.json --language Chinese
 ```
 
 探测视频：
@@ -93,6 +101,16 @@ python3 scripts/video_understanding.py extract-audio input.mp4 --output work/dem
 python3 scripts/video_understanding.py sample-frames input.mp4 --output-dir work/demo/frames --interval 30
 ```
 
+通过模型配置层准备或执行 ASR：
+
+```bash
+python3 scripts/video_understanding.py run-asr \
+  --config work/demo/model_config.json \
+  --audio work/demo/audio.wav \
+  --output work/demo/transcript.json \
+  --language Chinese
+```
+
 校验模型生成的转写和画面观察：
 
 ```bash
@@ -108,6 +126,14 @@ python3 scripts/video_understanding.py prepare-frame-review \
   --interval 30 \
   --output work/demo/frame_review_manifest.json \
   --prompt-output work/demo/frame_review_prompt.md \
+  --language Chinese
+
+python3 scripts/video_understanding.py run-frame-review \
+  --config work/demo/model_config.json \
+  --manifest work/demo/frame_review_manifest.json \
+  --prompt work/demo/frame_review_prompt.md \
+  --frames-dir work/demo/frames \
+  --output work/demo/frame_review_output.json \
   --language Chinese
 
 # 等 VLM 写出 work/demo/frame_review_output.json 后：
@@ -202,6 +228,7 @@ search_index.jsonl
 参考：
 
 - [references/video-analysis-schema.md](references/video-analysis-schema.md)：通用视频理解 schema。
+- [references/model-config-schema.md](references/model-config-schema.md)：ASR/VLM/OCR 模型配置 schema。
 - [references/analysis-schema.md](references/analysis-schema.md)：可选片段剪辑计划 schema。
 
 ## 推荐的视频理解架构
