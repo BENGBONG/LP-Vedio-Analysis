@@ -1,6 +1,6 @@
 # Video Analysis Schema
 
-Use this schema as the primary output contract for general video understanding. A downstream task can derive highlight clips, meeting notes, course chapters, reports, Q&A context, or a search index from this file.
+Use this schema as the primary output contract for general video understanding. A downstream task can derive selected-moment clips, meeting notes, course chapters, reports, Q&A context, or a search index from this file.
 
 ## Strict JSON Shape
 

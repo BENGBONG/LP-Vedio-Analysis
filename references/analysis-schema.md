@@ -1,8 +1,8 @@
-# Highlight Clip Plan Schema
+# Optional Clip Plan Schema
 
-Use this reference when preparing or validating `clip_plan.json` for highlight clipping and recap page generation.
+Use this reference when preparing or validating `clip_plan.json` for optional selected-moment clipping and review page generation.
 
-For general video understanding, first produce `video_analysis.json` using `references/video-analysis-schema.md`, then derive a clip plan when highlight clips are needed.
+For general video understanding, first produce `video_analysis.json` using `references/video-analysis-schema.md`, then derive a clip plan only when selected moments need to be cut or reviewed.
 
 ## Strict JSON Shape
 

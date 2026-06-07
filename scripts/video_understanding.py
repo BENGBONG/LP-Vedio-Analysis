@@ -4,10 +4,11 @@ import html
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
-SCENARIOS = {"highlight", "meeting", "course", "live", "report", "summary", "search", "qa"}
+SCENARIOS = {"clips", "highlight", "meeting", "course", "live", "report", "summary", "search", "qa"}
 
 
 def run_command(args):
@@ -509,7 +510,7 @@ def cmd_derive_highlight(args):
     }
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Wrote highlight plan to {args.output}")
+    print(f"Wrote clip plan to {args.output}")
 
 
 def cmd_summary(args):
@@ -642,11 +643,11 @@ def cmd_page(args):
     playlist = []
     active_details = ""
     initial_src = source_rel
-    initial_badge = "Original Video" if source_rel else "Highlight"
+    initial_badge = "Original Video" if source_rel else "Selected Moment"
     initial_title = title
     initial_summary = summary
     if source_rel:
-        active_details = '<p class="reason">Select a highlight from the right playlist to load it in the main player.</p>'
+        active_details = '<p class="reason">Select a moment from the right playlist to load it in the main player.</p>'
     else:
         active_details = ""
     for index, item in enumerate(get_highlights(plan), start=1):
@@ -1099,7 +1100,7 @@ PAGE_TEMPLATE = """<!doctype html>
     <div class="nav">
       <div class="brand">Video Recap</div>
       <div class="nav-actions">
-        <span>Generated highlight analysis</span>
+        <span>Generated video analysis</span>
         <a class="github-link" href="{github_url}" target="_blank" rel="noreferrer" aria-label="Open GitHub repository">
           <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor">
             <path d="M8 0C3.58 0 0 3.69 0 8.24c0 3.64 2.29 6.72 5.47 7.81.4.08.55-.18.55-.4 0-.2-.01-.85-.01-1.54-2.01.38-2.53-.5-2.69-.96-.09-.24-.48-.96-.82-1.15-.28-.15-.68-.52-.01-.53.63-.01 1.08.6 1.23.85.72 1.25 1.87.9 2.33.69.07-.54.28-.9.51-1.11-1.78-.21-3.64-.92-3.64-4.06 0-.9.31-1.63.82-2.2-.08-.21-.36-1.05.08-2.17 0 0 .67-.22 2.2.84A7.34 7.34 0 0 1 8 4.03c.68 0 1.36.09 2 .28 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.17.51.57.82 1.3.82 2.2 0 3.15-1.87 3.85-3.65 4.06.29.26.54.76.54 1.54 0 1.11-.01 2-.01 2.28 0 .22.15.48.55.4A8.18 8.18 0 0 0 16 8.24C16 3.69 12.42 0 8 0Z"/>
@@ -1116,7 +1117,7 @@ PAGE_TEMPLATE = """<!doctype html>
         <p class="summary">{summary}</p>
       </div>
       <div class="stats">
-        <span>{highlight_count} highlights</span>
+        <span>{highlight_count} moments</span>
         <span>{scenario}</span>
       </div>
     </section>
@@ -1141,7 +1142,7 @@ PAGE_TEMPLATE = """<!doctype html>
       <aside class="playlist-shell">
         <div class="playlist-head">
           <div>
-            <h2>Highlights</h2>
+            <h2>Selected moments</h2>
             <span>Click a segment to load it in the main player.</span>
           </div>
           <button class="original-button" id="originalButton" type="button">Original</button>
@@ -1154,7 +1155,7 @@ PAGE_TEMPLATE = """<!doctype html>
   </main>
   <footer>
     <div class="footer-inner">
-      <span>Built with Video Highlight Skill.</span>
+      <span>Built with LP Video Analysis Skill.</span>
       <a class="github-link" href="{github_url}" target="_blank" rel="noreferrer">Download on GitHub</a>
     </div>
   </footer>
@@ -1238,8 +1239,8 @@ PAGE_TEMPLATE = """<!doctype html>
       button.addEventListener('click', () => {{
         document.querySelectorAll('.playlist-item').forEach((item) => item.classList.remove('active'));
         button.classList.add('active');
-        activeBadge.textContent = 'Highlight';
-        activeTitle.textContent = button.dataset.title || 'Highlight';
+        activeBadge.textContent = 'Selected Moment';
+        activeTitle.textContent = button.dataset.title || 'Selected Moment';
         activeSummary.textContent = button.dataset.summary || '';
         renderDetails(button);
         setVideo(button.dataset.src, 0, true);
@@ -1312,7 +1313,7 @@ def build_parser():
     p.add_argument("analysis")
     p.set_defaults(func=cmd_validate_analysis)
 
-    p = sub.add_parser("derive-highlight", help="Create clip_plan.json from video_analysis.json.")
+    p = sub.add_parser("derive-clips", help="Create an optional clip_plan.json from video_analysis.json.")
     p.add_argument("--analysis", required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--target-count", type=int, default=5)
@@ -1348,6 +1349,8 @@ def build_parser():
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "derive-highlight":
+        sys.argv[1] = "derive-clips"
     parser = build_parser()
     args = parser.parse_args()
     args.func(args)

@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="examples/video-highlight-skill-cover.jpg" alt="Video Understanding Skill cover" width="900" />
+  <img src="examples/lp-video-analysis-cover.svg" alt="LP Video Analysis Skill cover" width="900" />
   <h1>LP Video Analysis Skill</h1>
-  <p><strong>General video understanding skill for agents: inspect media, extract audio and frames, build structured video analysis, derive summaries/search indexes/highlights, cut clips with FFmpeg, and generate recap pages.</strong></p>
+  <p><strong>General video understanding skill for agents: inspect media, extract audio and frames, build structured video analysis, derive summaries, reports, Q&A context, search indexes, and optional clips.</strong></p>
   <p>
     <code>Codex</code> · <code>Claude Code</code> · <code>OpenClaw</code> · <code>Agent Skill</code> · <code>Video RAG</code>
   </p>
@@ -13,12 +13,12 @@
 - Extracts audio for ASR
 - Samples frames for visual review
 - Defines a general `video_analysis.json` schema
-- Validates semantic segments, transcript entries, and optional highlights
-- Derives Markdown summaries and JSONL search indexes
-- Derives highlight clip plans from analysis
-- Cuts clips with `ffmpeg`
+- Validates semantic segments, transcript entries, and optional key moments
+- Derives Markdown summaries, reports, and JSONL search indexes
+- Derives optional clip plans from analysis
+- Cuts optional clips with `ffmpeg`
 - Exports sidecar SRT subtitles
-- Generates a YouTube-style static recap page
+- Generates a static review page for selected moments
 
 The repository does not include an embedded video foundation model. Your Agent or model stack provides ASR, frame captioning, OCR, multimodal review, and structured JSON generation.
 
@@ -29,7 +29,7 @@ Install or clone the complete repository, including `SKILL.md`, `scripts/`, `ref
 Then give your Agent a video and ask:
 
 ```text
-Use video-understanding-skill to analyze this video, create video_analysis.json, produce a summary, build a search index, and cut highlights if useful.
+Use video-understanding-skill to analyze this video, create video_analysis.json, produce a summary, and build a search index.
 ```
 
 ## Commands
@@ -37,7 +37,7 @@ Use video-understanding-skill to analyze this video, create video_analysis.json,
 Create an analysis workspace:
 
 ```bash
-python3 scripts/video_understanding.py init-analysis --output work/demo --scenario highlight
+python3 scripts/video_understanding.py init-analysis --output work/demo --scenario summary
 ```
 
 Inspect media:
@@ -64,10 +64,10 @@ Derive outputs:
 ```bash
 python3 scripts/video_understanding.py summary --analysis assets/sample_video_analysis.json --output work/demo/summary.md
 python3 scripts/video_understanding.py search-index --analysis assets/sample_video_analysis.json --output work/demo/search_index.jsonl
-python3 scripts/video_understanding.py derive-highlight --analysis assets/sample_video_analysis.json --output work/demo/clip_plan.json
+python3 scripts/video_understanding.py derive-clips --analysis assets/sample_video_analysis.json --output work/demo/clip_plan.json
 ```
 
-Cut clips and generate the recap page:
+Optionally cut selected moments and generate a review page:
 
 ```bash
 python3 scripts/video_understanding.py cut examples/demo-input/original-product-video.mp4 --plan work/demo/clip_plan.json --output-dir work/demo/clips
@@ -98,7 +98,7 @@ site/index.html
 Read:
 
 - [references/video-analysis-schema.md](references/video-analysis-schema.md) for general analysis.
-- [references/analysis-schema.md](references/analysis-schema.md) for highlight clip plans.
+- [references/analysis-schema.md](references/analysis-schema.md) for optional clip plans.
 
 ## Recommended Architecture
 
@@ -109,8 +109,8 @@ video
  -> sampled frames + captions + OCR
  -> semantic segments
  -> video_analysis.json
- -> summary / search index / highlights / report / Q&A
- -> optional ffmpeg clips and recap page
+ -> summary / search index / report / Q&A
+ -> optional selected moments and ffmpeg clips
 ```
 
 For long videos, avoid sending the whole video to a strong multimodal model at once. Use ASR and low-frequency frame sampling first, then run multimodal review only on candidate windows.
