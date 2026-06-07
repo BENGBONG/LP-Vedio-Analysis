@@ -7,6 +7,8 @@
   </p>
 </div>
 
+[中文说明](README.zh-CN.md)
+
 ## What It Does
 
 - Probes video metadata with `ffprobe`
@@ -124,4 +126,24 @@ For long videos, avoid sending the whole video to a strong multimodal model at o
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
+
+## Attribution
+
+This repository is adapted from [inhai-wiki/video-highlight-skill](https://github.com/inhai-wiki/video-highlight-skill), which is published under the MIT License.
+
+What we referenced from the original project:
+
+- The Agent Skill packaging pattern: `SKILL.md`, `scripts/`, `references/`, `assets/`, `agents/`, and examples.
+- The deterministic media helper workflow using `ffprobe`, `ffmpeg`, audio extraction, frame sampling, clip cutting, SRT sidecars, and a static review page.
+- The original optional clip-plan schema and demo media flow.
+
+What we changed:
+
+- Repositioned the project from highlight-first clipping to general video understanding.
+- Added `video_analysis.json` as the primary analysis artifact.
+- Added `references/video-analysis-schema.md`.
+- Added `scripts/video_understanding.py` with `init-analysis`, `validate-analysis`, `summary`, `search-index`, and `derive-clips`.
+- Kept `scripts/video_highlight.py` only as a backward-compatible wrapper.
+- Replaced the old highlight-first branding with LP Video Analysis branding.
+- Added `assets/sample_video_analysis.json` and unit tests.
