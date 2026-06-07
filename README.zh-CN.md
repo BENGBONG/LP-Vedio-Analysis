@@ -9,6 +9,8 @@
 - 使用 `ffprobe` 探测视频元信息。
 - 使用 `ffmpeg` 抽取音频，供 ASR 转写。
 - 按时间间隔抽帧，供视觉理解、OCR、画面描述使用。
+- 校验外部 ASR 转写和 frame observations 文件。
+- 从转写、画面观察和 metadata 自动构建语义分段。
 - 定义通用的 `video_analysis.json` 结构。
 - 校验语义分段、转写片段、可选片段计划。
 - 从分析结果派生 Markdown 摘要。
@@ -37,6 +39,24 @@ python3 scripts/video_understanding.py probe examples/demo-input/original-produc
 ```bash
 python3 scripts/video_understanding.py extract-audio input.mp4 --output work/demo/audio.wav
 python3 scripts/video_understanding.py sample-frames input.mp4 --output-dir work/demo/frames --interval 30
+```
+
+校验模型生成的转写和画面观察：
+
+```bash
+python3 scripts/video_understanding.py validate-transcript assets/sample_transcript.json
+python3 scripts/video_understanding.py validate-frames assets/sample_frame_observations.json
+```
+
+从模型输出构建 `video_analysis.json`：
+
+```bash
+python3 scripts/video_understanding.py build-segments \
+  --transcript assets/sample_transcript.json \
+  --frames assets/sample_frame_observations.json \
+  --metadata work/demo/metadata.json \
+  --output work/demo/video_analysis.json \
+  --scenario summary
 ```
 
 校验通用视频分析结果：
@@ -69,7 +89,7 @@ video
  -> ffprobe metadata
  -> ASR transcript with timestamps
  -> sampled frames + captions + OCR
- -> semantic segments
+ -> build-segments
  -> video_analysis.json
  -> summary / search index / report / Q&A
  -> optional selected moments and ffmpeg clips
@@ -90,10 +110,10 @@ video_analysis.json
 ```text
 summary.md
 search_index.jsonl
-clip_plan.json
-clips/*.mp4
-clips/*.srt
-site/index.html
+可选：clip_plan.json
+可选：clips/*.mp4
+可选：clips/*.srt
+可选：site/index.html
 ```
 
 参考：
@@ -116,7 +136,8 @@ site/index.html
 - 将项目定位从“高光剪辑优先”改为“通用视频理解优先”。
 - 新增 `video_analysis.json` 作为主产物。
 - 新增 [references/video-analysis-schema.md](references/video-analysis-schema.md)。
-- 新增 [scripts/video_understanding.py](scripts/video_understanding.py)，支持 `init-analysis`、`validate-analysis`、`summary`、`search-index`、`derive-clips` 等命令。
+- 新增 [scripts/video_understanding.py](scripts/video_understanding.py)，支持 `init-analysis`、`validate-analysis`、`validate-transcript`、`validate-frames`、`build-segments`、`summary`、`search-index`、`derive-clips` 等命令。
+- 新增显式 transcript/frame observation 输入约定、`moments` 主字段和更适合 Video RAG 的 JSONL 输出。
 - 保留 [scripts/video_highlight.py](scripts/video_highlight.py) 作为兼容包装器。
 - 替换原来的高光剪辑首屏品牌图，改为 LP Video Analysis 封面。
 - 新增 [assets/sample_video_analysis.json](assets/sample_video_analysis.json)。

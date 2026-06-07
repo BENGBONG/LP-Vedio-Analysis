@@ -22,6 +22,7 @@ class VideoUnderstandingTest(unittest.TestCase):
             "transcript": [{"start": 0, "end": 4, "text": "Hello"}],
             "frames": [],
             "segments": [{"id": "seg_1", "start": 0, "end": 5, "title": "Intro", "summary": "Opening", "importance": 3}],
+            "moments": [],
             "entities": [],
             "claims": [],
             "actions": [],
@@ -38,6 +39,7 @@ class VideoUnderstandingTest(unittest.TestCase):
                 {"start": 0, "end": 10, "title": "A", "summary": "A"},
                 {"start": 9, "end": 12, "title": "B", "summary": "B"},
             ],
+            "moments": [],
             "entities": [],
             "claims": [],
             "actions": [],
@@ -60,6 +62,29 @@ class VideoUnderstandingTest(unittest.TestCase):
         self.assertEqual(highlight["end"], 12.4)
         self.assertEqual(highlight["title"], "Product benefits")
         self.assertGreaterEqual(highlight["score"], 90)
+
+    def test_get_moments_prefers_new_field_and_supports_legacy_fields(self):
+        self.assertEqual(video_understanding.get_moments({"moments": [{"title": "A"}]})[0]["title"], "A")
+        self.assertEqual(video_understanding.get_moments({"highlights": [{"title": "B"}]})[0]["title"], "B")
+        self.assertEqual(video_understanding.get_moments({"clips": [{"title": "C"}]})[0]["title"], "C")
+
+    def test_validate_transcript_and_frame_items(self):
+        transcript = [{"start": 0, "end": 4, "text": "Hello"}]
+        frames = [{"timestamp": 1.0, "caption": "A frame", "ocr": [], "objects": []}]
+        self.assertEqual(video_understanding.validate_transcript_items(transcript), [])
+        self.assertEqual(video_understanding.validate_frame_items(frames), [])
+
+    def test_build_segments_from_inputs_merges_nearby_transcript(self):
+        transcript = [
+            {"start": 0, "end": 4, "text": "Opening context."},
+            {"start": 6, "end": 10, "text": "More detail."},
+            {"start": 30, "end": 34, "text": "New topic."},
+        ]
+        frames = [{"timestamp": 7, "caption": "A useful slide.", "ocr": ["Slide"], "objects": []}]
+        segments = video_understanding.build_segments_from_inputs(transcript, frames, max_duration=20, gap=8)
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0]["start"], 0.0)
+        self.assertIn("A useful slide", segments[0]["summary"])
 
 
 if __name__ == "__main__":

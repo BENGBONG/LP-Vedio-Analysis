@@ -24,22 +24,27 @@ Before running commands, locate the skill directory that contains this `SKILL.md
    - Run `python3 <skill_dir>/scripts/video_understanding.py sample-frames <video> --output-dir <workdir>/frames --interval 30`.
    - Lower `--interval` to 5-15 seconds for product demos, UI walkthroughs, sports, games, or visually dense videos.
 
-4. Build `video_analysis.json`.
+4. Prepare model observation files.
    - Transcribe audio with available ASR or multimodal model support.
    - Caption sampled frames and collect OCR when useful.
-   - Merge transcript, visual observations, and metadata into `references/video-analysis-schema.md`.
-   - Save the result to `<workdir>/video_analysis.json`.
+   - Save transcript to `<workdir>/transcript.json`.
+   - Save frame observations to `<workdir>/frame_observations.json`.
+   - Validate them with `validate-transcript` and `validate-frames`.
 
-5. Validate analysis.
+5. Build `video_analysis.json`.
+   - Run `python3 <skill_dir>/scripts/video_understanding.py build-segments --transcript <workdir>/transcript.json --frames <workdir>/frame_observations.json --metadata <workdir>/metadata.json --output <workdir>/video_analysis.json --scenario <scenario>`.
+   - Use this script-generated analysis as the first pass, then let the agent refine titles, summaries, topics, claims, actions, questions, and optional moments when needed.
+
+6. Validate analysis.
    - Run `python3 <skill_dir>/scripts/video_understanding.py validate-analysis <workdir>/video_analysis.json`.
    - Fix invalid timestamps, overlapping segments, missing titles, missing summaries, and malformed lists.
 
-6. Produce task-specific outputs.
+7. Produce task-specific outputs.
    - Summary: `python3 <skill_dir>/scripts/video_understanding.py summary --analysis <workdir>/video_analysis.json --output <workdir>/summary.md`
    - Search index: `python3 <skill_dir>/scripts/video_understanding.py search-index --analysis <workdir>/video_analysis.json --output <workdir>/search_index.jsonl`
    - Optional clip plan: `python3 <skill_dir>/scripts/video_understanding.py derive-clips --analysis <workdir>/video_analysis.json --output <workdir>/clip_plan.json`
 
-7. Cut optional selected moments and generate a review page.
+8. Cut optional selected moments and generate a review page.
    - Validate clips: `python3 <skill_dir>/scripts/video_understanding.py validate-plan <workdir>/clip_plan.json`.
    - Cut clips: `python3 <skill_dir>/scripts/video_understanding.py cut <video> --plan <workdir>/clip_plan.json --output-dir <workdir>/clips`.
    - Generate page: `python3 <skill_dir>/scripts/video_understanding.py page --plan <workdir>/clip_plan.json --clips-dir <workdir>/clips --source-video <video> --copy-media --output <workdir>/site/index.html`.
@@ -49,9 +54,9 @@ Before running commands, locate the skill directory that contains this `SKILL.md
 The script performs deterministic media work. The agent or connected model must provide video understanding:
 
 - ASR or audio transcription with timestamps.
-- Frame captioning or multimodal visual review.
+- Frame captioning or multimodal visual review saved as frame observations.
 - OCR when slides, UI, or text overlays matter.
-- Segment summaries and topic labels.
+- Refinement of script-generated segment summaries and topic labels.
 - Scenario-specific extraction such as decisions, action items, claims, questions, chapters, and selected moments.
 
 ## Scenario Routing

@@ -14,6 +14,8 @@
 - Probes video metadata with `ffprobe`
 - Extracts audio for ASR
 - Samples frames for visual review
+- Validates external ASR transcripts and frame observation files
+- Builds semantic segments from transcript, frame observations, and metadata
 - Defines a general `video_analysis.json` schema
 - Validates semantic segments, transcript entries, and optional key moments
 - Derives Markdown summaries, reports, and JSONL search indexes
@@ -55,6 +57,24 @@ python3 scripts/video_understanding.py extract-audio input.mp4 --output work/dem
 python3 scripts/video_understanding.py sample-frames input.mp4 --output-dir work/demo/frames --interval 30
 ```
 
+Validate model-produced transcript and frame observations:
+
+```bash
+python3 scripts/video_understanding.py validate-transcript assets/sample_transcript.json
+python3 scripts/video_understanding.py validate-frames assets/sample_frame_observations.json
+```
+
+Build `video_analysis.json` from the model outputs:
+
+```bash
+python3 scripts/video_understanding.py build-segments \
+  --transcript assets/sample_transcript.json \
+  --frames assets/sample_frame_observations.json \
+  --metadata work/demo/metadata.json \
+  --output work/demo/video_analysis.json \
+  --scenario summary
+```
+
 Validate a general video analysis artifact:
 
 ```bash
@@ -91,10 +111,10 @@ Derived artifacts:
 ```text
 summary.md
 search_index.jsonl
-clip_plan.json
-clips/*.mp4
-clips/*.srt
-site/index.html
+optional: clip_plan.json
+optional: clips/*.mp4
+optional: clips/*.srt
+optional: site/index.html
 ```
 
 Read:
@@ -109,7 +129,7 @@ video
  -> ffprobe metadata
  -> ASR transcript with timestamps
  -> sampled frames + captions + OCR
- -> semantic segments
+ -> build-segments
  -> video_analysis.json
  -> summary / search index / report / Q&A
  -> optional selected moments and ffmpeg clips
@@ -144,6 +164,7 @@ What we changed:
 - Added `video_analysis.json` as the primary analysis artifact.
 - Added `references/video-analysis-schema.md`.
 - Added `scripts/video_understanding.py` with `init-analysis`, `validate-analysis`, `summary`, `search-index`, and `derive-clips`.
+- Added explicit transcript/frame-observation validation, `build-segments`, `moments`, and richer Video RAG JSONL output.
 - Kept `scripts/video_highlight.py` only as a backward-compatible wrapper.
 - Replaced the old highlight-first branding with LP Video Analysis branding.
 - Added `assets/sample_video_analysis.json` and unit tests.

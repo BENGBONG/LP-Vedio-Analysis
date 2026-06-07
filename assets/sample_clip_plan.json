@@ -1,5 +1,5 @@
 {
-  "scenario": "highlight",
+  "scenario": "clips",
   "source_title": "Sample Long Video",
   "summary": "A sample recap plan used to verify the skill scripts.",
   "segments": [
@@ -13,7 +13,7 @@
       "importance": 2
     }
   ],
-  "highlights": [
+  "moments": [
     {
       "start": 12,
       "end": 42,

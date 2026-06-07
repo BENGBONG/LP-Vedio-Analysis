@@ -16,6 +16,15 @@ Use this schema as the primary output contract for general video understanding. 
     "has_audio": true,
     "metadata_path": "metadata.json"
   },
+  "raw_inputs": {
+    "metadata_path": "metadata.json",
+    "transcript_path": "transcript.json",
+    "frame_observations_path": "frame_observations.json"
+  },
+  "observations": {
+    "transcript_count": 120,
+    "frame_count": 80
+  },
   "summary": "One paragraph summary of the whole video.",
   "transcript": [
     {
@@ -46,7 +55,7 @@ Use this schema as the primary output contract for general video understanding. 
       "importance": 3
     }
   ],
-  "highlights": [
+  "moments": [
     {
       "start": 305.2,
       "end": 365.8,
@@ -104,13 +113,41 @@ Use this schema as the primary output contract for general video understanding. 
 - Keep segment boundaries non-overlapping and ordered.
 - Use `importance` from 0 to 5.
 - Prefer transcript-aligned timestamps over frame-only guesses.
+- Keep raw observations and derived segment summaries separate when possible.
+
+## Input Artifact Shapes
+
+`transcript.json` can be either a list or an object with a `transcript` list:
+
+```json
+{
+  "transcript": [
+    {"start": 0.0, "end": 8.4, "speaker": "Speaker 1", "text": "Text."}
+  ]
+}
+```
+
+`frame_observations.json` can be either a list or an object with a `frames` list:
+
+```json
+{
+  "frames": [
+    {
+      "timestamp": 30.0,
+      "path": "frames/frame_00001.jpg",
+      "caption": "Speaker shows a dashboard.",
+      "ocr": ["Revenue"],
+      "objects": ["screen", "chart"]
+    }
+  ]
+}
+```
 
 ## Scenario Guidance
 
 - `summary`: concise whole-video summary plus timeline segments.
 - `meeting`: decisions, action items, blockers, owners, deadlines, and unresolved questions.
 - `course`: chapters, concepts, examples, prerequisites, and practice prompts.
-- `highlight`: reusable moments with standalone value.
 - `live`: event spikes, turning points, reactions, and major state changes.
 - `report`: claims, evidence, risk, contradictions, and facts to verify.
 - `search`: segment-level documents for Video RAG or asset search.

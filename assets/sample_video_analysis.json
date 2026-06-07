@@ -1,5 +1,5 @@
 {
-  "scenario": "highlight",
+  "scenario": "summary",
   "source": {
     "title": "Sample Product Video",
     "duration": 20.1,
@@ -8,6 +8,15 @@
     "fps": "30/1",
     "has_audio": false,
     "metadata_path": "metadata.json"
+  },
+  "raw_inputs": {
+    "metadata_path": "metadata.json",
+    "transcript_path": "assets/sample_transcript.json",
+    "frame_observations_path": "assets/sample_frame_observations.json"
+  },
+  "observations": {
+    "transcript_count": 3,
+    "frame_count": 3
   },
   "summary": "A short social product video moves from skeptical hook to product benefits and a closing recommendation.",
   "transcript": [
@@ -85,7 +94,7 @@
       "importance": 5
     }
   ],
-  "highlights": [],
+  "moments": [],
   "entities": [
     {
       "name": "Raspberry Rose",

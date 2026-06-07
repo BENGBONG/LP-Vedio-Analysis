@@ -71,15 +71,19 @@ def load_plan(path):
     with open(path, "r", encoding="utf-8") as handle:
         data = json.load(handle)
     if isinstance(data, list):
-        data = {"scenario": "highlight", "source_title": "", "summary": "", "segments": [], "highlights": data}
+        data = {"scenario": "clips", "source_title": "", "summary": "", "segments": [], "moments": data}
     return data
 
 
-def get_highlights(plan):
-    items = plan.get("highlights") or plan.get("clips") or []
+def get_moments(plan):
+    items = plan.get("moments") or plan.get("highlights") or plan.get("clips") or []
     if not isinstance(items, list):
-        raise ValueError("highlights must be a list")
+        raise ValueError("moments must be a list")
     return items
+
+
+def get_highlights(plan):
+    return get_moments(plan)
 
 
 def get_segments(analysis):
@@ -87,6 +91,20 @@ def get_segments(analysis):
     if not isinstance(items, list):
         raise ValueError("segments must be a list")
     return items
+
+
+def normalize_list_payload(data, key):
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        value = data.get(key) or data.get(f"{key}_items") or []
+        if isinstance(value, list):
+            return value
+    raise ValueError(f"{key} payload must be a list or an object containing a {key} list")
+
+
+def load_list_payload(path, key):
+    return normalize_list_payload(load_plan(path), key)
 
 
 def relative_url(path, base_dir):
@@ -186,12 +204,12 @@ def validate_plan_data(plan, duration=None):
     scenario = plan.get("scenario")
     if scenario and scenario not in SCENARIOS:
         errors.append(f"scenario must be one of {sorted(SCENARIOS)}")
-    highlights = get_highlights(plan)
-    if not highlights:
-        errors.append("highlights is empty")
+    moments = get_moments(plan)
+    if not moments:
+        errors.append("moments is empty")
     last_end = -1.0
-    for index, item in enumerate(highlights, start=1):
-        prefix = f"highlight {index}"
+    for index, item in enumerate(moments, start=1):
+        prefix = f"moment {index}"
         try:
             start = parse_time(item.get("start"))
             end = parse_time(item.get("end"))
@@ -205,7 +223,7 @@ def validate_plan_data(plan, duration=None):
         if duration is not None and end > duration:
             errors.append(f"{prefix}: end exceeds video duration")
         if start < last_end:
-            errors.append(f"{prefix}: overlaps previous highlight")
+            errors.append(f"{prefix}: overlaps previous moment")
         last_end = max(last_end, end)
         if not str(item.get("title", "")).strip():
             errors.append(f"{prefix}: missing title")
@@ -232,15 +250,19 @@ def validate_analysis_data(analysis):
     duration = None
     if source.get("duration") not in (None, ""):
         try:
-            duration = parse_time(source.get("duration"))
-            if duration < 0:
+            parsed_duration = parse_time(source.get("duration"))
+            if parsed_duration < 0:
                 errors.append("source.duration must be non-negative")
+            elif parsed_duration > 0:
+                duration = parsed_duration
         except Exception as exc:
             errors.append(f"source.duration is invalid: {exc}")
-    for field in ["transcript", "frames", "segments", "entities", "claims", "actions", "questions"]:
+    for field in ["transcript", "frames", "segments", "moments", "entities", "claims", "actions", "questions"]:
         value = analysis.get(field, [])
         if not isinstance(value, list):
             errors.append(f"{field} must be a list")
+    if "highlights" in analysis and not isinstance(analysis.get("highlights"), list):
+        errors.append("highlights must be a list when provided")
     last_end = -1.0
     for index, item in enumerate(analysis.get("segments") or [], start=1):
         prefix = f"segment {index}"
@@ -286,12 +308,216 @@ def validate_analysis_data(analysis):
             errors.append(f"{prefix}: end must be greater than start")
         if not str(item.get("text", "")).strip():
             errors.append(f"{prefix}: missing text")
-    if analysis.get("highlights"):
+    moments = analysis.get("moments") or analysis.get("highlights") or []
+    if moments:
         errors.extend(validate_plan_data({
-            "scenario": "highlight",
-            "highlights": analysis.get("highlights") or [],
+            "scenario": "clips",
+            "moments": moments,
         }, duration=duration))
     return errors
+
+
+def validate_transcript_items(items):
+    errors = []
+    if not isinstance(items, list):
+        return ["transcript must be a list"]
+    last_end = -1.0
+    for index, item in enumerate(items, start=1):
+        prefix = f"transcript {index}"
+        if not isinstance(item, dict):
+            errors.append(f"{prefix}: must be an object")
+            continue
+        try:
+            start = parse_time(item.get("start"))
+            end = parse_time(item.get("end"))
+        except Exception as exc:
+            errors.append(f"{prefix}: invalid start/end: {exc}")
+            continue
+        if end <= start:
+            errors.append(f"{prefix}: end must be greater than start")
+        if start < last_end:
+            errors.append(f"{prefix}: overlaps previous transcript item")
+        last_end = max(last_end, end)
+        if not str(item.get("text", "")).strip():
+            errors.append(f"{prefix}: missing text")
+    return errors
+
+
+def validate_frame_items(items):
+    errors = []
+    if not isinstance(items, list):
+        return ["frames must be a list"]
+    for index, item in enumerate(items, start=1):
+        prefix = f"frame {index}"
+        if not isinstance(item, dict):
+            errors.append(f"{prefix}: must be an object")
+            continue
+        try:
+            parse_time(item.get("timestamp"))
+        except Exception as exc:
+            errors.append(f"{prefix}: invalid timestamp: {exc}")
+        for field in ["ocr", "objects"]:
+            value = item.get(field, [])
+            if not isinstance(value, list):
+                errors.append(f"{prefix}: {field} must be a list")
+    return errors
+
+
+def metadata_source(metadata):
+    source = {
+        "title": "",
+        "duration": 0,
+        "width": 0,
+        "height": 0,
+        "fps": "",
+        "has_audio": False,
+        "metadata_path": "",
+    }
+    if not metadata:
+        return source
+    fmt = metadata.get("format") or {}
+    source["title"] = fmt.get("tags", {}).get("title", "") if isinstance(fmt.get("tags"), dict) else ""
+    if fmt.get("duration") not in (None, ""):
+        source["duration"] = parse_time(fmt.get("duration"))
+    for stream in metadata.get("streams") or []:
+        if stream.get("codec_type") == "video" and not source["width"]:
+            source["width"] = int(stream.get("width") or 0)
+            source["height"] = int(stream.get("height") or 0)
+            source["fps"] = stream.get("avg_frame_rate") or stream.get("r_frame_rate") or ""
+        if stream.get("codec_type") == "audio":
+            source["has_audio"] = True
+    return source
+
+
+def segment_summary(transcript_items, frame_items):
+    text = " ".join(str(item.get("text", "")).strip() for item in transcript_items if item.get("text"))
+    captions = [str(item.get("caption", "")).strip() for item in frame_items if item.get("caption")]
+    if text and captions:
+        return f"{text} Visual context: {'; '.join(captions[:2])}."
+    if text:
+        return text
+    if captions:
+        return "; ".join(captions[:3])
+    return "Segment generated from available timestamped observations."
+
+
+def build_segments_from_inputs(transcript, frames, max_duration=90.0, gap=8.0):
+    timeline = sorted(transcript, key=lambda item: parse_time(item.get("start")))
+    segments = []
+    current = []
+    for item in timeline:
+        start = parse_time(item.get("start"))
+        end = parse_time(item.get("end"))
+        if not current:
+            current = [item]
+            continue
+        current_start = parse_time(current[0].get("start"))
+        current_end = parse_time(current[-1].get("end"))
+        should_split = (start - current_end > gap) or (end - current_start > max_duration)
+        if should_split:
+            segments.append(current)
+            current = [item]
+        else:
+            current.append(item)
+    if current:
+        segments.append(current)
+    if not segments and frames:
+        sorted_frames = sorted(frames, key=lambda item: parse_time(item.get("timestamp")))
+        for frame in sorted_frames:
+            ts = parse_time(frame.get("timestamp"))
+            segments.append([{"start": ts, "end": ts + 5, "text": frame.get("caption", "")}])
+    output = []
+    for index, items in enumerate(segments, start=1):
+        start = parse_time(items[0].get("start"))
+        end = max(parse_time(item.get("end")) for item in items)
+        frame_hits = [
+            frame for frame in frames
+            if frame.get("timestamp") is not None and start <= parse_time(frame.get("timestamp")) <= end
+        ]
+        visuals = [frame.get("caption") for frame in frame_hits if frame.get("caption")]
+        topics = sorted({topic for item in items for topic in item.get("topics", [])}) if any(isinstance(item.get("topics"), list) for item in items) else []
+        output.append({
+            "id": f"seg_{index:04d}",
+            "start": start,
+            "end": end,
+            "title": f"Segment {index}",
+            "summary": segment_summary(items, frame_hits),
+            "topics": topics,
+            "visuals": visuals,
+            "importance": 3,
+            "evidence": [
+                {"type": "transcript", "count": len(items)},
+                {"type": "frame", "count": len(frame_hits)},
+            ],
+        })
+    return output
+
+
+def cmd_validate_transcript(args):
+    items = load_list_payload(args.transcript, "transcript")
+    errors = validate_transcript_items(items)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}")
+        raise SystemExit(1)
+    print("Transcript is valid")
+
+
+def cmd_validate_frames(args):
+    items = load_list_payload(args.frames, "frames")
+    errors = validate_frame_items(items)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}")
+        raise SystemExit(1)
+    print("Frame observations are valid")
+
+
+def cmd_build_segments(args):
+    transcript = load_list_payload(args.transcript, "transcript") if args.transcript else []
+    frames = load_list_payload(args.frames, "frames") if args.frames else []
+    metadata = load_plan(args.metadata) if args.metadata else {}
+    errors = validate_transcript_items(transcript) + validate_frame_items(frames)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}")
+        raise SystemExit(1)
+    source = metadata_source(metadata)
+    if args.title:
+        source["title"] = args.title
+    if args.metadata:
+        source["metadata_path"] = args.metadata
+    segments = build_segments_from_inputs(transcript, frames, max_duration=args.max_segment_duration, gap=args.gap)
+    analysis = {
+        "scenario": args.scenario,
+        "source": source,
+        "raw_inputs": {
+            "metadata_path": args.metadata or "",
+            "transcript_path": args.transcript or "",
+            "frame_observations_path": args.frames or "",
+        },
+        "observations": {
+            "transcript_count": len(transcript),
+            "frame_count": len(frames),
+        },
+        "summary": args.summary or "",
+        "transcript": transcript,
+        "frames": frames,
+        "segments": segments,
+        "moments": [],
+        "entities": [],
+        "claims": [],
+        "actions": [],
+        "questions": [],
+    }
+    errors = validate_analysis_data(analysis)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}")
+        raise SystemExit(1)
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_text(json.dumps(analysis, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote analysis to {args.output}")
 
 
 def cmd_init_analysis(args):
@@ -309,11 +535,20 @@ def cmd_init_analysis(args):
             "has_audio": False,
             "metadata_path": "metadata.json",
         },
+        "raw_inputs": {
+            "metadata_path": "metadata.json",
+            "transcript_path": "transcript.json",
+            "frame_observations_path": "frame_observations.json",
+        },
+        "observations": {
+            "transcript_count": 0,
+            "frame_count": 0,
+        },
         "summary": "",
         "transcript": [],
         "frames": [],
         "segments": [],
-        "highlights": [],
+        "moments": [],
         "entities": [],
         "claims": [],
         "actions": [],
@@ -324,7 +559,7 @@ def cmd_init_analysis(args):
         "Analyze the video inputs and return strict JSON matching references/video-analysis-schema.md.\n"
         f"Scenario: {args.scenario}\n"
         "Use timestamped transcript, sampled frame observations, OCR, and metadata. "
-        "Return segments first; derive highlights only when they are useful for the requested task.\n"
+        "Return segments first; derive selected moments only when they are useful for the requested task.\n"
     )
     (out / "model_prompt.txt").write_text(prompt, encoding="utf-8")
     print(f"Created analysis project at {out}")
@@ -340,14 +575,14 @@ def cmd_init_project(args):
         "source_title": "",
         "summary": "",
         "segments": [],
-        "highlights": [],
+        "moments": [],
         "report": {"key_points": [], "claims_to_verify": [], "action_items": []},
     }
     (out / "clip_plan.json").write_text(json.dumps(skeleton, ensure_ascii=False, indent=2), encoding="utf-8")
     prompt = (
         "Analyze the video inputs and return strict JSON matching references/analysis-schema.md.\n"
         f"Scenario: {scenario}\n"
-        "Use exact timestamps. Include highlights with start, end, title, summary, reason, score, tags, and subtitles when available.\n"
+        "Use exact timestamps. Include moments with start, end, title, summary, reason, score, tags, and subtitles when available.\n"
     )
     (out / "model_prompt.txt").write_text(prompt, encoding="utf-8")
     print(f"Created project at {out}")
@@ -469,7 +704,7 @@ def segment_to_highlight(item, index):
     return {
         "start": start,
         "end": end,
-        "title": item.get("title") or f"Highlight {index}",
+        "title": item.get("title") or f"Moment {index}",
         "summary": item.get("summary") or "",
         "reason": item.get("reason") or "Selected from the highest-importance video segments.",
         "score": round(score),
@@ -487,21 +722,21 @@ def cmd_derive_highlight(args):
         for error in errors:
             print(f"ERROR: {error}")
         raise SystemExit(1)
-    highlights = analysis.get("highlights") or []
-    if not highlights:
+    moments = analysis.get("moments") or analysis.get("highlights") or []
+    if not moments:
         segments = sorted(
             get_segments(analysis),
             key=lambda item: (float(item.get("importance", 0) or 0), parse_time(item.get("end")) - parse_time(item.get("start"))),
             reverse=True,
         )
-        highlights = [segment_to_highlight(item, index) for index, item in enumerate(segments[:args.target_count], start=1)]
-        highlights.sort(key=lambda item: parse_time(item["start"]))
+        moments = [segment_to_highlight(item, index) for index, item in enumerate(segments[:args.target_count], start=1)]
+        moments.sort(key=lambda item: parse_time(item["start"]))
     plan = {
-        "scenario": "highlight",
+        "scenario": "clips",
         "source_title": (analysis.get("source") or {}).get("title") or analysis.get("source_title", ""),
         "summary": analysis.get("summary", ""),
         "segments": analysis.get("segments") or [],
-        "highlights": highlights,
+        "moments": moments,
         "report": {
             "key_points": analysis.get("key_points") or [],
             "claims_to_verify": analysis.get("claims") or [],
@@ -561,30 +796,51 @@ def cmd_search_index(args):
         raise SystemExit(1)
     transcript = analysis.get("transcript") or []
     frames = analysis.get("frames") or []
+    source = analysis.get("source") or {}
+    entities = analysis.get("entities") or []
     rows = []
     for index, segment in enumerate(get_segments(analysis), start=1):
         start = parse_time(segment.get("start"))
         end = parse_time(segment.get("end"))
-        transcript_text = " ".join(
-            str(item.get("text", ""))
-            for item in transcript
+        transcript_hits = [
+            item for item in transcript
             if item.get("start") is not None and item.get("end") is not None
             and parse_time(item.get("start")) < end and parse_time(item.get("end")) > start
+        ]
+        transcript_text = " ".join(
+            str(item.get("text", ""))
+            for item in transcript_hits
         )
         frame_hits = [
             item for item in frames
             if item.get("timestamp") is not None and start <= parse_time(item.get("timestamp")) <= end
         ]
+        ocr_items = [text for frame in frame_hits for text in frame.get("ocr", [])]
+        visual_text = " ".join(str(item.get("caption", "")) for item in frame_hits if item.get("caption"))
+        entity_hits = [
+            item.get("name") for item in entities
+            if any(start <= parse_time(ts) <= end for ts in item.get("timestamps", []) or [])
+        ]
         row = {
             "segment_id": segment.get("id") or f"seg_{index:04d}",
+            "source_title": source.get("title", ""),
+            "source_video": source.get("path", ""),
             "start": start,
             "end": end,
             "title": segment.get("title", ""),
             "summary": segment.get("summary", ""),
             "topics": segment.get("topics") or [],
+            "entities": entity_hits,
             "visuals": segment.get("visuals") or [],
-            "ocr": [text for frame in frame_hits for text in frame.get("ocr", [])],
-            "text": transcript_text or segment.get("summary", ""),
+            "ocr": ocr_items,
+            "transcript_text": transcript_text,
+            "visual_text": visual_text,
+            "ocr_text": " ".join(str(item) for item in ocr_items),
+            "text": " ".join(value for value in [segment.get("summary", ""), transcript_text, visual_text, " ".join(str(item) for item in ocr_items)] if value),
+            "evidence": segment.get("evidence") or [
+                {"type": "transcript", "count": len(transcript_hits)},
+                {"type": "frame", "count": len(frame_hits)},
+            ],
         }
         rows.append(row)
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -707,7 +963,7 @@ def cmd_page(args):
         active_details=active_details,
         playlist="\n".join(playlist),
         highlight_count=len(get_highlights(plan)),
-        scenario=html.escape(str(plan.get("scenario", "highlight"))),
+        scenario=html.escape(str(plan.get("scenario", "clips"))),
         report=report,
         github_url="https://github.com/BENGBONG/LP-Vedio-Analysis",
     )
@@ -1283,7 +1539,7 @@ def build_parser():
 
     p = sub.add_parser("init-project", help="Create a work directory and starter files.")
     p.add_argument("--output", required=True)
-    p.add_argument("--scenario", choices=sorted(SCENARIOS), default="highlight")
+    p.add_argument("--scenario", choices=sorted(SCENARIOS), default="clips")
     p.set_defaults(func=cmd_init_project)
 
     p = sub.add_parser("probe", help="Write ffprobe metadata JSON.")
@@ -1312,6 +1568,26 @@ def build_parser():
     p = sub.add_parser("validate-analysis", help="Validate video_analysis.json.")
     p.add_argument("analysis")
     p.set_defaults(func=cmd_validate_analysis)
+
+    p = sub.add_parser("validate-transcript", help="Validate timestamped transcript JSON.")
+    p.add_argument("transcript")
+    p.set_defaults(func=cmd_validate_transcript)
+
+    p = sub.add_parser("validate-frames", help="Validate frame observation JSON.")
+    p.add_argument("frames")
+    p.set_defaults(func=cmd_validate_frames)
+
+    p = sub.add_parser("build-segments", help="Build video_analysis.json from transcript, frame observations, and metadata.")
+    p.add_argument("--transcript", default="", help="Transcript JSON list or object with a transcript list.")
+    p.add_argument("--frames", default="", help="Frame observation JSON list or object with a frames list.")
+    p.add_argument("--metadata", default="", help="ffprobe metadata JSON.")
+    p.add_argument("--output", required=True)
+    p.add_argument("--scenario", choices=sorted(SCENARIOS), default="summary")
+    p.add_argument("--title", default="")
+    p.add_argument("--summary", default="")
+    p.add_argument("--max-segment-duration", type=float, default=90)
+    p.add_argument("--gap", type=float, default=8)
+    p.set_defaults(func=cmd_build_segments)
 
     p = sub.add_parser("derive-clips", help="Create an optional clip_plan.json from video_analysis.json.")
     p.add_argument("--analysis", required=True)

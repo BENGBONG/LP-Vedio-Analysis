@@ -1,0 +1,34 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile scripts
+        run: python -m py_compile scripts/video_understanding.py scripts/video_highlight.py tests/test_video_understanding.py
+      - name: Run unit tests
+        run: python -m unittest discover -s tests
+      - name: Validate sample artifacts
+        run: |
+          python scripts/video_understanding.py validate-transcript assets/sample_transcript.json
+          python scripts/video_understanding.py validate-frames assets/sample_frame_observations.json
+          python scripts/video_understanding.py validate-analysis assets/sample_video_analysis.json
+      - name: Exercise derived outputs
+        run: |
+          mkdir -p work/ci
+          python scripts/video_understanding.py build-segments \
+            --transcript assets/sample_transcript.json \
+            --frames assets/sample_frame_observations.json \
+            --output work/ci/video_analysis.json \
+            --scenario summary
+          python scripts/video_understanding.py summary --analysis work/ci/video_analysis.json --output work/ci/summary.md
+          python scripts/video_understanding.py search-index --analysis work/ci/video_analysis.json --output work/ci/search_index.jsonl
+          python scripts/video_understanding.py derive-clips --analysis work/ci/video_analysis.json --output work/ci/clip_plan.json

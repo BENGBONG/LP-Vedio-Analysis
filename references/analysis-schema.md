@@ -8,7 +8,7 @@ For general video understanding, first produce `video_analysis.json` using `refe
 
 ```json
 {
-  "scenario": "highlight",
+  "scenario": "clips",
   "source_title": "Talk or video title",
   "summary": "One paragraph summary of the whole source video.",
   "segments": [
@@ -22,7 +22,7 @@ For general video understanding, first produce `video_analysis.json` using `refe
       "importance": 3
     }
   ],
-  "highlights": [
+  "moments": [
     {
       "start": 305.2,
       "end": 365.8,
@@ -31,13 +31,13 @@ For general video understanding, first produce `video_analysis.json` using `refe
       "reason": "Clear end-to-end proof point with visible output.",
       "score": 92,
       "tags": ["demo", "workflow"],
-      "quote": "The agent has now generated the first highlight clip.",
+      "quote": "The agent has now generated the first selected moment.",
       "takeaways": ["The workflow can run end to end.", "The result is ready for a recap page."],
       "subtitles": [
         {
           "start": 305.2,
           "end": 309.7,
-          "text": "The agent has now generated the first highlight clip."
+          "text": "The agent has now generated the first selected moment."
         }
       ]
     }
@@ -70,7 +70,7 @@ Ask the model to produce only JSON:
 Analyze this long video using the transcript, frame observations, and metadata below.
 Return strict JSON matching the schema. Do not include markdown.
 
-Scenario: <highlight|meeting|course|live|report>
+Scenario: <clips|meeting|course|live|report>
 Target clips: <number>
 Clip duration: <min>-<max> seconds
 
@@ -78,8 +78,8 @@ Selection rules:
 - Prefer moments with clear standalone value.
 - Use exact timestamps from transcript alignment.
 - Include subtitle entries when transcript timing is available.
-- Include `quote` and `takeaways` when a recap page needs richer highlight breakdowns.
-- Avoid overlapping highlights unless the user asked for a montage.
+- Include `quote` and `takeaways` when a review page needs richer moment breakdowns.
+- Avoid overlapping moments unless the user asked for a montage.
 
 Metadata:
 <metadata>
@@ -93,12 +93,12 @@ Visual observations:
 
 ## Scenario Scoring
 
-`highlight` scoring:
+`clips` scoring:
 
 - 90-100: strong standalone demo, major reveal, memorable conclusion, or audience reaction
 - 75-89: useful explanation, concrete example, crisp technical point
 - 60-74: context that supports a stronger nearby clip
-- below 60: keep in segments, skip as highlight
+- below 60: keep in segments, skip as a selected moment
 
 `meeting` scoring:
 
@@ -110,7 +110,7 @@ Visual observations:
 
 - Each segment should represent one teachable unit.
 - Prefer clean boundaries around topic changes.
-- Use `highlights` for must-watch moments or examples.
+- Use `moments` for must-watch moments or examples.
 
 `live` scoring:
 
