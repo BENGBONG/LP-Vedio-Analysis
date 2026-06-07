@@ -1,0 +1,49 @@
+{
+  "name": "lp-video-analysis-skill",
+  "version": "0.1.0",
+  "description": "Agent skill and CLI toolkit for structured video understanding workflows.",
+  "license": "MIT",
+  "author": "BENGBONG",
+  "homepage": "https://github.com/BENGBONG/LP-Vedio-Analysis#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BENGBONG/LP-Vedio-Analysis.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BENGBONG/LP-Vedio-Analysis/issues"
+  },
+  "keywords": [
+    "agent-skill",
+    "video-analysis",
+    "video-understanding",
+    "video-rag",
+    "asr",
+    "vlm",
+    "ocr",
+    "ffmpeg"
+  ],
+  "bin": {
+    "lp-video-analysis": "bin/lp-video-analysis.js"
+  },
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "agents",
+    "assets",
+    "bin",
+    "examples/eval",
+    "examples/lp-video-analysis-cover.svg",
+    "examples/model_config.handoff.json",
+    "references",
+    "scripts"
+  ],
+  "scripts": {
+    "test": "python3 -m unittest discover -s tests && python3 scripts/evaluate_fixtures.py",
+    "pack:check": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
