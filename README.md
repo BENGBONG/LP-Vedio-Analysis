@@ -1,105 +1,99 @@
 <div align="center">
   <img src="examples/lp-video-analysis-cover.svg" alt="LP Video Analysis Skill cover" width="900" />
   <h1>LP Video Analysis Skill</h1>
-  <p><strong>面向 Agent 的通用视频理解 Skill：探测视频、抽取音频和画面帧，生成结构化视频分析，并派生摘要、报告、问答上下文、搜索索引和可选剪辑。</strong></p>
+  <p><strong>A general video-understanding skill for agents: probe videos, extract audio and frames, build structured video analysis, and derive summaries, reports, Q&A context, search indexes, and optional clips.</strong></p>
   <p>
     <code>Codex</code> · <code>Claude Code</code> · <code>OpenClaw</code> · <code>Agent Skill</code> · <code>Video RAG</code>
   </p>
 </div>
 
-[完整中文说明](README.zh-CN.md) · [English summary](#english-summary)
+[Chinese README](README.zh-CN.md)
 
-## 这个项目做什么
+## What this project does
 
-- 使用 `ffprobe` 探测视频元信息。
-- 使用 `ffmpeg` 抽取音频，供 ASR 转写。
-- 按时间间隔抽帧，供视觉理解、OCR、画面描述使用。
-- 校验外部 ASR 转写和画面观察文件。
-- 从转写、画面观察和 metadata 自动构建语义分段。
-- 定义通用的 `video_analysis.json` 主产物。
-- 通过 `model_config.json` 配置 ASR、VLM frame review 和 OCR provider。
-- 根据视频时长、场景和预算自动选择粗看策略。
-- 对重点片段生成自动二次精看计划。
-- 只对候选窗口做加密抽帧和局部 ASR/VLM/OCR，控制多模态 token 消耗。
-- 从分析结果派生 Markdown 摘要、报告、`search_index.jsonl`、问答上下文和可选剪辑计划。
-- 可选地剪辑片段、生成 SRT 字幕和静态 review 页面。
+- Uses `ffprobe` to inspect video metadata.
+- Uses `ffmpeg` to extract audio for ASR transcription.
+- Samples frames at time intervals for visual understanding, OCR, and scene descriptions.
+- Validates external ASR transcripts and frame observation files.
+- Builds semantic segments automatically from transcripts, frame observations, and metadata.
+- Defines a general `video_analysis.json` primary artifact.
+- Configures ASR, VLM frame review, and OCR providers through `model_config.json`.
+- Selects a first-pass review strategy automatically based on video length, scenario, and budget.
+- Generates second-pass review plans for important segments.
+- Runs dense frame extraction and local ASR/VLM/OCR only on selected windows to control multimodal token usage.
+- Derives Markdown summaries, reports, `search_index.jsonl`, Q&A context, and optional clip plans from the analysis result.
+- Optionally cuts clips, generates SRT subtitles, and builds a static review page.
 
-这个仓库本身不内置视频大模型。ASR、画面描述、OCR、多模态复核和结构化 JSON 生成，需要由你的 Agent 或模型栈提供。本项目负责把工程流程、输入输出结构、自动策略和二次精看计划标准化。
+This repository does not include a built-in video foundation model. ASR, visual descriptions, OCR, multimodal review, and structured JSON generation must be provided by your agent or model stack. This project standardizes the engineering workflow, input/output structure, automatic strategies, and second-pass review plans.
 
-## 快速开始
+## Quick start
 
-通过 npm 安装：
+Install with npm:
 
 ```bash
 npm install -g lp-video-analysis-skill
 ```
 
-安装后使用：
+Use the installed CLI:
 
 ```bash
 lp-video-analysis --help
 lp-video-analysis init-analysis --output work/demo --scenario summary
 ```
 
-也可以从源码运行。克隆完整仓库，包含 `SKILL.md`、`scripts/`、`references/`、`assets/`、`agents/` 和 `examples/`，然后使用 `python3 scripts/video_understanding.py ...`。
+You can also run from source. Clone the full repository, which includes `SKILL.md`, `scripts/`, `references/`, `assets/`, `agents/`, and `examples/`, then use `python3 scripts/video_understanding.py ...`.
 
-然后把视频交给 Agent，并提出类似请求：
+Then hand a video to your agent and make a request such as:
 
 ```text
 Use video-understanding-skill to analyze this video, create video_analysis.json, produce a summary, and build a search index.
 ```
 
-也可以直接用中文：
-
-```text
-使用这个视频理解 Skill 分析这个视频，生成 video_analysis.json、中文摘要、搜索索引，并根据需要生成二次精看计划。
-```
-
-## 核心流程
+## Core workflow
 
 ```text
 video
- -> model_config.json 配置 ASR/VLM/OCR provider
+ -> model_config.json configures ASR/VLM/OCR providers
  -> ffprobe metadata
- -> plan-analysis 自动选择粗看策略
- -> run-asr 生成或执行 ASR 任务
+ -> plan-analysis automatically selects a first-pass strategy
+ -> run-asr generates or executes an ASR task
  -> sampled frames
- -> run-frame-review / run-ocr 生成或执行 VLM/OCR 任务
+ -> run-frame-review / run-ocr generates or executes VLM/OCR tasks
  -> build-segments
  -> video_analysis.json
- -> refine-plan 自动判断重点窗口
- -> execute-refine-plan 加密抽帧 + 局部音频
- -> 外部 ASR/VLM/OCR 写入精看结果
+ -> refine-plan automatically selects important windows
+ -> execute-refine-plan dense frame extraction + local audio
+ -> external ASR/VLM/OCR writes second-pass results
  -> merge-refine-results
  -> refined video_analysis.json
  -> summary / search index / report / Q&A / optional clips
 ```
 
-长视频不要一次性全部交给强多模态模型。推荐先用 ASR 和低频抽帧建立全片时间轴，再只对候选片段做二次精看。
+For long videos, do not send the whole file to a strong multimodal model at once. A more stable workflow is to build a full-video timeline first with ASR and sparse frame sampling, then run dense multimodal review only on candidate windows.
 
-## 常用命令
+## Common commands
 
-如果已经通过 npm 全局安装，下面命令里的 `python3 scripts/video_understanding.py` 都可以替换成 `lp-video-analysis`。
+If you installed the package globally with npm, you can replace `python3 scripts/video_understanding.py` in the commands below with `lp-video-analysis`.
 
-创建分析工作区：
+Create an analysis workspace:
 
 ```bash
 python3 scripts/video_understanding.py init-analysis --output work/demo --scenario summary
 ```
 
-`init-analysis` 会同时创建 `model_config.json`。这是模型配置层，默认是 `handoff` 模式：脚本会生成 ASR/VLM/OCR 请求文件和 prompt，但不会假装已经完成模型理解。后续可以把 provider 改成 `command` 模式，接你自己的本地 ASR/VLM/OCR 脚本。需要单独重建配置时可以运行：
+`init-analysis` also creates `model_config.json`. This is the model configuration layer. The default provider mode is `handoff`: scripts generate ASR/VLM/OCR request files and prompts, but do not pretend that model understanding has already happened. You can later switch providers to `command` mode to connect your own local ASR/VLM/OCR scripts. To rebuild the config separately, run:
 
 ```bash
-python3 scripts/video_understanding.py init-model-config --output work/demo/model_config.json --language Chinese
+python3 scripts/video_understanding.py init-model-config --output work/demo/model_config.json --language English
 ```
 
-探测视频：
+Probe video metadata:
 
 ```bash
 python3 scripts/video_understanding.py probe examples/demo-input/original-product-video.mp4 --output work/demo/metadata.json
 ```
 
-根据 metadata 自动选择成本策略：
+Choose a cost strategy automatically from metadata:
 
 ```bash
 python3 scripts/video_understanding.py plan-analysis \
@@ -109,31 +103,31 @@ python3 scripts/video_understanding.py plan-analysis \
   --output work/demo/analysis_strategy.json
 ```
 
-抽取音频和画面帧：
+Extract audio and sampled frames:
 
 ```bash
 python3 scripts/video_understanding.py extract-audio input.mp4 --output work/demo/audio.wav
 python3 scripts/video_understanding.py sample-frames input.mp4 --output-dir work/demo/frames --interval 30
 ```
 
-通过模型配置层准备或执行 ASR：
+Prepare or execute ASR through the model configuration layer:
 
 ```bash
 python3 scripts/video_understanding.py run-asr \
   --config work/demo/model_config.json \
   --audio work/demo/audio.wav \
   --output work/demo/transcript.json \
-  --language Chinese
+  --language English
 ```
 
-校验模型生成的转写和画面观察：
+Validate model-generated transcripts and frame observations:
 
 ```bash
 python3 scripts/video_understanding.py validate-transcript assets/sample_transcript.json
 python3 scripts/video_understanding.py validate-frames assets/sample_frame_observations.json
 ```
 
-把抽帧交给多模态模型审阅，并导入模型结果：
+Send sampled frames to a multimodal model for review, then ingest the model result:
 
 ```bash
 python3 scripts/video_understanding.py prepare-frame-review \
@@ -141,7 +135,7 @@ python3 scripts/video_understanding.py prepare-frame-review \
   --interval 30 \
   --output work/demo/frame_review_manifest.json \
   --prompt-output work/demo/frame_review_prompt.md \
-  --language Chinese
+  --language English
 
 python3 scripts/video_understanding.py run-frame-review \
   --config work/demo/model_config.json \
@@ -149,16 +143,16 @@ python3 scripts/video_understanding.py run-frame-review \
   --prompt work/demo/frame_review_prompt.md \
   --frames-dir work/demo/frames \
   --output work/demo/frame_review_output.json \
-  --language Chinese
+  --language English
 
-# 等 VLM 写出 work/demo/frame_review_output.json 后：
+# After the VLM writes work/demo/frame_review_output.json:
 python3 scripts/video_understanding.py ingest-frame-review \
   --manifest work/demo/frame_review_manifest.json \
   --review work/demo/frame_review_output.json \
   --output work/demo/frame_observations.json
 ```
 
-从模型输出构建 `video_analysis.json`：
+Build `video_analysis.json` from model outputs:
 
 ```bash
 python3 scripts/video_understanding.py build-segments \
@@ -169,13 +163,13 @@ python3 scripts/video_understanding.py build-segments \
   --scenario summary
 ```
 
-校验通用视频分析结果：
+Validate the general video analysis result:
 
 ```bash
 python3 scripts/video_understanding.py validate-analysis assets/sample_video_analysis.json
 ```
 
-选择需要二次精看的候选窗口：
+Select candidate windows for second-pass review:
 
 ```bash
 python3 scripts/video_understanding.py refine-plan \
@@ -183,9 +177,9 @@ python3 scripts/video_understanding.py refine-plan \
   --output work/demo/refine_plan.json
 ```
 
-`refine-plan` 会按规则标记 `P0`、`P1`、`P2`：包括 segment importance 高、moment score 高、包含视觉价值或不确定关键词、有音频但没有转写、存在待确认问题等。后续只对这些窗口做加密抽帧和局部 ASR/VLM/OCR。
+`refine-plan` marks windows as `P0`, `P1`, or `P2` according to rules such as high segment importance, high moment score, visual value, uncertainty keywords, audio without transcript, or unresolved questions. Later steps run dense frame extraction and local ASR/VLM/OCR only on those windows.
 
-按二次精看计划准备重点窗口素材：
+Prepare assets for selected second-pass windows:
 
 ```bash
 python3 scripts/video_understanding.py execute-refine-plan input.mp4 \
@@ -194,7 +188,7 @@ python3 scripts/video_understanding.py execute-refine-plan input.mp4 \
   --priorities P0,P1
 ```
 
-每个被选中的窗口会得到加密 `frames/`、需要 ASR 时的 `audio.wav`、`frame_review_manifest.json`、`frame_review_prompt.md` 和 `window.json`。等 ASR 和 VLM/OCR 的结果写入窗口目录后，再合回主分析：
+Each selected window receives dense `frames/`, `audio.wav` when ASR is needed, `frame_review_manifest.json`, `frame_review_prompt.md`, and `window.json`. After ASR and VLM/OCR results are written into the window directories, merge them back into the primary analysis:
 
 ```bash
 python3 scripts/video_understanding.py merge-refine-results \
@@ -204,7 +198,7 @@ python3 scripts/video_understanding.py merge-refine-results \
   --output work/demo/video_analysis.refined.json
 ```
 
-派生摘要、搜索索引和可选剪辑计划：
+Derive summaries, search indexes, and optional clip plans:
 
 ```bash
 python3 scripts/video_understanding.py summary --analysis assets/sample_video_analysis.json --output work/demo/summary.md
@@ -212,41 +206,41 @@ python3 scripts/video_understanding.py search-index --analysis assets/sample_vid
 python3 scripts/video_understanding.py derive-clips --analysis assets/sample_video_analysis.json --output work/demo/clip_plan.json
 ```
 
-可选：剪辑片段并生成 review 页面：
+Optional: cut clips and generate a review page:
 
 ```bash
 python3 scripts/video_understanding.py cut examples/demo-input/original-product-video.mp4 --plan work/demo/clip_plan.json --output-dir work/demo/clips
 python3 scripts/video_understanding.py page --plan work/demo/clip_plan.json --clips-dir work/demo/clips --source-video examples/demo-input/original-product-video.mp4 --copy-media --output work/demo/site/index.html
 ```
 
-旧入口 `scripts/video_highlight.py` 仍然保留，但只作为兼容包装器，实际会转发到 `video_understanding.py`。
+The legacy entry point `scripts/video_highlight.py` is still kept, but only as a compatibility wrapper that forwards to `video_understanding.py`.
 
-## 输出结构
+## Output structure
 
-主产物：
+Primary artifact:
 
 ```text
 video_analysis.json
 ```
 
-常见派生产物：
+Common derived artifacts:
 
 ```text
 summary.md
 search_index.jsonl
-可选：clip_plan.json
-可选：clips/*.mp4
-可选：clips/*.srt
-可选：site/index.html
+optional: clip_plan.json
+optional: clips/*.mp4
+optional: clips/*.srt
+optional: site/index.html
 ```
 
-参考：
+References:
 
-- [references/video-analysis-schema.md](references/video-analysis-schema.md)：通用视频理解 schema。
-- [references/model-config-schema.md](references/model-config-schema.md)：ASR/VLM/OCR 模型配置 schema。
-- [references/analysis-schema.md](references/analysis-schema.md)：可选片段剪辑计划 schema。
+- [references/video-analysis-schema.md](references/video-analysis-schema.md): general video understanding schema.
+- [references/model-config-schema.md](references/model-config-schema.md): ASR/VLM/OCR model configuration schema.
+- [references/analysis-schema.md](references/analysis-schema.md): optional clip plan schema.
 
-## 推荐的视频理解架构
+## Recommended video-understanding architecture
 
 ```text
 video
@@ -264,9 +258,9 @@ video
  -> optional selected moments and ffmpeg clips
 ```
 
-长视频不要一次性全部交给强多模态模型。更稳妥的方式是先用 ASR 和低频抽帧建立时间轴，再只对候选片段做多模态复核。
+For long videos, avoid sending the full file to a strong multimodal model in a single pass. The more robust approach is to build a timeline with ASR and sparse frame sampling first, then run multimodal review only on candidate segments.
 
-模型交接层是显式的：
+The model handoff layer is explicit:
 
 ```text
 frames/*.jpg
@@ -278,7 +272,7 @@ frames/*.jpg
  -> frame_observations.json
 ```
 
-二次精看也是显式产物：
+Second-pass review is also represented as explicit artifacts:
 
 ```text
 video_analysis.json
@@ -291,49 +285,45 @@ video_analysis.json
  -> refined video_analysis.json
 ```
 
-## 评估样例
+## Evaluation fixtures
 
-Golden eval 样例放在 `examples/eval/`。它们不调用 ASR、OCR、VLM、`ffmpeg` 或 `ffprobe`，只验证稳定的工程契约：
+Golden evaluation fixtures live in `examples/eval/`. They do not call ASR, OCR, VLM, `ffmpeg`, or `ffprobe`; they only validate stable engineering contracts:
 
 ```bash
 python3 scripts/evaluate_fixtures.py
 ```
 
-每个样例包含 `manifest.json`、稳定 metadata、transcript、frame observations，以及人工确认过的 `expected_video_analysis.json`。后续有真实业务视频时，按同样目录结构新增 case 即可。
+Each fixture includes `manifest.json`, stable metadata, transcript, frame observations, and a manually confirmed `expected_video_analysis.json`. When you have real business videos, add new cases using the same directory structure.
 
-## 运行要求
+## Requirements
 
 - Python 3.9+
 - `ffmpeg`
 - `ffprobe`
-- 可提供 ASR 和多模态理解能力的 Agent/model stack
+- An agent or model stack that can provide ASR and multimodal understanding
 
 ## License
 
-MIT。详见 [LICENSE](LICENSE)。
+MIT. See [LICENSE](LICENSE).
 
-## 和原项目的关系
+## Relationship to the original project
 
-本仓库基于 [inhai-wiki/video-highlight-skill](https://github.com/inhai-wiki/video-highlight-skill) 改造。原项目使用 MIT License 发布，因此允许复制、修改、发布和再授权；我们保留了 MIT License，并保留 Git 历史中的原作者贡献记录。
+This repository is adapted from [inhai-wiki/video-highlight-skill](https://github.com/inhai-wiki/video-highlight-skill). The original project is released under the MIT License, which allows copying, modification, publication, and relicensing. We keep the MIT License and preserve the original author contributions in the Git history.
 
-我们参考了原项目的这些内容：
+We reused these parts of the original project:
 
-- Agent Skill 的组织方式：`SKILL.md`、`scripts/`、`references/`、`assets/`、`agents/`、`examples/`。
-- 确定性媒体处理流程：`ffprobe` 探测、`ffmpeg` 抽音频、抽帧、剪辑、SRT 字幕和静态页面生成。
-- 原有的可选片段计划结构和 demo 媒体处理流程。
+- Agent Skill organization: `SKILL.md`, `scripts/`, `references/`, `assets/`, `agents/`, and `examples/`.
+- Deterministic media-processing workflow: `ffprobe` probing, `ffmpeg` audio extraction, frame extraction, clipping, SRT subtitle generation, and static page generation.
+- The original optional clip plan structure and demo media-processing workflow.
 
-我们修改和新增了这些部分：
+We changed and added these parts:
 
-- 将项目定位从“高光剪辑优先”改为“通用视频理解优先”。
-- 新增 `video_analysis.json` 作为主产物。
-- 新增 [references/video-analysis-schema.md](references/video-analysis-schema.md)。
-- 新增 [scripts/video_understanding.py](scripts/video_understanding.py)，支持 `init-analysis`、`validate-analysis`、`validate-transcript`、`validate-frames`、`build-segments`、`summary`、`search-index`、`derive-clips` 等命令。
-- 新增显式 transcript/frame observation 输入约定、VLM 抽帧审阅交接命令、`moments` 主字段和更适合 Video RAG 的 JSONL 输出。
-- 保留 [scripts/video_highlight.py](scripts/video_highlight.py) 作为兼容包装器。
-- 替换原来的高光剪辑首屏品牌图，改为 LP Video Analysis 封面。
-- 新增 [assets/sample_video_analysis.json](assets/sample_video_analysis.json)。
-- 新增基础单元测试。
-
-## English Summary
-
-LP Video Analysis Skill is a general video-understanding workflow for agents. It probes media, extracts audio and sampled frames, accepts external ASR/VLM/OCR outputs, builds `video_analysis.json`, plans second-pass review windows, and derives summaries, search indexes, reports, Q&A context, and optional clips.
+- Repositioned the project from "highlight clipping first" to "general video understanding first".
+- Added `video_analysis.json` as the primary artifact.
+- Added [references/video-analysis-schema.md](references/video-analysis-schema.md).
+- Added [scripts/video_understanding.py](scripts/video_understanding.py), with commands such as `init-analysis`, `validate-analysis`, `validate-transcript`, `validate-frames`, `build-segments`, `summary`, `search-index`, and `derive-clips`.
+- Added explicit transcript/frame observation input contracts, VLM frame-review handoff commands, the primary `moments` field, and JSONL output better suited for Video RAG.
+- Kept [scripts/video_highlight.py](scripts/video_highlight.py) as a compatibility wrapper.
+- Replaced the original highlight-clipping hero brand image with the LP Video Analysis cover.
+- Added [assets/sample_video_analysis.json](assets/sample_video_analysis.json).
+- Added basic unit tests.
