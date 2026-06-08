@@ -1,6 +1,11 @@
-# LP Video Analysis Skill
-
-面向 Agent 的通用视频理解 Skill。它用于把视频处理成结构化理解结果，包括媒体信息、转写、抽帧观察、语义分段、摘要、报告、问答上下文、搜索索引，以及可选的片段剪辑。
+<div align="center">
+  <img src="examples/lp-video-analysis-cover.svg" alt="LP Video Analysis Skill cover" width="900" />
+  <h1>LP Video Analysis Skill</h1>
+  <p><strong>面向 Agent 的通用视频理解 Skill：探测视频、抽取音频和画面帧，生成结构化视频分析，并派生摘要、报告、问答上下文、搜索索引和可选剪辑。</strong></p>
+  <p>
+    <code>Codex</code> · <code>Claude Code</code> · <code>OpenClaw</code> · <code>Agent Skill</code> · <code>Video RAG</code>
+  </p>
+</div>
 
 [English README](README.md)
 
@@ -9,17 +14,17 @@
 - 使用 `ffprobe` 探测视频元信息。
 - 使用 `ffmpeg` 抽取音频，供 ASR 转写。
 - 按时间间隔抽帧，供视觉理解、OCR、画面描述使用。
-- 校验外部 ASR 转写和 frame observations 文件。
+- 校验外部 ASR 转写和画面观察文件。
 - 从转写、画面观察和 metadata 自动构建语义分段。
-- 定义通用的 `video_analysis.json` 结构。
+- 定义通用的 `video_analysis.json` 主产物。
 - 通过 `model_config.json` 配置 ASR、VLM frame review 和 OCR provider。
-- 校验语义分段、转写片段、可选片段计划。
-- 从分析结果派生 Markdown 摘要。
-- 从分析结果派生 `search_index.jsonl`，用于 Video RAG 或媒体资产搜索。
-- 从分析结果派生可选的 `clip_plan.json`。
+- 根据视频时长、场景和预算自动选择粗看策略。
+- 对重点片段生成自动二次精看计划。
+- 只对候选窗口做加密抽帧和局部 ASR/VLM/OCR，控制多模态 token 消耗。
+- 从分析结果派生 Markdown 摘要、报告、`search_index.jsonl`、问答上下文和可选剪辑计划。
 - 可选地剪辑片段、生成 SRT 字幕和静态 review 页面。
 
-这个仓库本身不内置视频大模型。ASR、画面描述、OCR、多模态复核和结构化 JSON 生成，需要由你的 Agent 或模型栈提供。
+这个仓库本身不内置视频大模型。ASR、画面描述、OCR、多模态复核和结构化 JSON 生成，需要由你的 Agent 或模型栈提供。本项目负责把工程流程、输入输出结构、自动策略和二次精看计划标准化。
 
 ## 快速开始
 
@@ -36,15 +41,51 @@ lp-video-analysis --help
 lp-video-analysis init-analysis --output work/demo --scenario summary
 ```
 
-也可以从源码运行。克隆完整仓库后，使用 `python3 scripts/video_understanding.py ...`。
+也可以从源码运行。克隆完整仓库，包含 `SKILL.md`、`scripts/`、`references/`、`assets/`、`agents/` 和 `examples/`，然后使用 `python3 scripts/video_understanding.py ...`。
+
+然后把视频交给 Agent，并提出类似请求：
+
+```text
+Use video-understanding-skill to analyze this video, create video_analysis.json, produce a summary, and build a search index.
+```
+
+也可以直接用中文：
+
+```text
+使用这个视频理解 Skill 分析这个视频，生成 video_analysis.json、中文摘要、搜索索引，并根据需要生成二次精看计划。
+```
+
+## 核心流程
+
+```text
+video
+ -> model_config.json 配置 ASR/VLM/OCR provider
+ -> ffprobe metadata
+ -> plan-analysis 自动选择粗看策略
+ -> run-asr 生成或执行 ASR 任务
+ -> sampled frames
+ -> run-frame-review / run-ocr 生成或执行 VLM/OCR 任务
+ -> build-segments
+ -> video_analysis.json
+ -> refine-plan 自动判断重点窗口
+ -> execute-refine-plan 加密抽帧 + 局部音频
+ -> 外部 ASR/VLM/OCR 写入精看结果
+ -> merge-refine-results
+ -> refined video_analysis.json
+ -> summary / search index / report / Q&A / optional clips
+```
+
+长视频不要一次性全部交给强多模态模型。推荐先用 ASR 和低频抽帧建立全片时间轴，再只对候选片段做二次精看。
+
+## 常用命令
+
+如果已经通过 npm 全局安装，下面命令里的 `python3 scripts/video_understanding.py` 都可以替换成 `lp-video-analysis`。
 
 创建分析工作区：
 
 ```bash
 python3 scripts/video_understanding.py init-analysis --output work/demo --scenario summary
 ```
-
-如果已经通过 npm 全局安装，下面命令里的 `python3 scripts/video_understanding.py` 都可以替换成 `lp-video-analysis`。
 
 `init-analysis` 会同时创建 `model_config.json`。这是模型配置层，默认是 `handoff` 模式：脚本会生成 ASR/VLM/OCR 请求文件和 prompt，但不会假装已经完成模型理解。后续可以把 provider 改成 `command` 模式，接你自己的本地 ASR/VLM/OCR 脚本。需要单独重建配置时可以运行：
 
@@ -180,62 +221,6 @@ python3 scripts/video_understanding.py page --plan work/demo/clip_plan.json --cl
 
 旧入口 `scripts/video_highlight.py` 仍然保留，但只作为兼容包装器，实际会转发到 `video_understanding.py`。
 
-## 推荐的视频理解架构
-
-```text
-video
- -> model_config.json 配置 ASR/VLM/OCR provider
- -> ffprobe metadata
- -> plan-analysis
- -> run-asr 生成或执行 ASR 任务
- -> sampled frames
- -> run-frame-review / run-ocr 生成或执行 VLM/OCR 任务
- -> build-segments
- -> video_analysis.json
- -> refine-plan
- -> dense candidate-window review
- -> refined video_analysis.json
- -> summary / search index / report / Q&A
- -> optional selected moments and ffmpeg clips
-```
-
-长视频不要一次性全部交给强多模态模型。更稳妥的方式是先用 ASR 和低频抽帧建立时间轴，再只对候选片段做多模态复核。
-
-模型交接层是显式的：
-
-```text
-frames/*.jpg
- -> prepare-frame-review
- -> frame_review_manifest.json + frame_review_prompt.md
- -> 外部 VLM/OCR 模型
- -> frame_review_output.json
- -> ingest-frame-review
- -> frame_observations.json
-```
-
-二次精看也是显式产物：
-
-```text
-video_analysis.json
- -> refine-plan
- -> refine_plan.json
- -> execute-refine-plan
- -> 每个窗口的加密抽帧 + 局部音频 + frame review prompt
- -> 外部 ASR/VLM/OCR 输出
- -> merge-refine-results
- -> refined video_analysis.json
-```
-
-## 评估样例
-
-Golden eval 样例放在 `examples/eval/`。它们不调用 ASR、OCR、VLM、`ffmpeg` 或 `ffprobe`，只验证稳定的工程契约：
-
-```bash
-python3 scripts/evaluate_fixtures.py
-```
-
-每个样例包含 `manifest.json`、稳定 metadata、transcript、frame observations，以及人工确认过的 `expected_video_analysis.json`。后续有真实业务视频时，按同样目录结构新增 case 即可。
-
 ## 输出结构
 
 主产物：
@@ -261,6 +246,72 @@ search_index.jsonl
 - [references/model-config-schema.md](references/model-config-schema.md)：ASR/VLM/OCR 模型配置 schema。
 - [references/analysis-schema.md](references/analysis-schema.md)：可选片段剪辑计划 schema。
 
+## 推荐的视频理解架构
+
+```text
+video
+ -> ffprobe metadata
+ -> plan-analysis
+ -> ASR transcript with timestamps
+ -> sampled frames
+ -> VLM frame review + OCR
+ -> build-segments
+ -> video_analysis.json
+ -> refine-plan
+ -> dense candidate-window review
+ -> refined video_analysis.json
+ -> summary / search index / report / Q&A
+ -> optional selected moments and ffmpeg clips
+```
+
+长视频不要一次性全部交给强多模态模型。更稳妥的方式是先用 ASR 和低频抽帧建立时间轴，再只对候选片段做多模态复核。
+
+模型交接层是显式的：
+
+```text
+frames/*.jpg
+ -> prepare-frame-review
+ -> frame_review_manifest.json + frame_review_prompt.md
+ -> external VLM/OCR model
+ -> frame_review_output.json
+ -> ingest-frame-review
+ -> frame_observations.json
+```
+
+二次精看也是显式产物：
+
+```text
+video_analysis.json
+ -> refine-plan
+ -> refine_plan.json
+ -> execute-refine-plan
+ -> per-window dense frames + local audio + frame review prompts
+ -> external ASR/VLM/OCR outputs
+ -> merge-refine-results
+ -> refined video_analysis.json
+```
+
+## 评估样例
+
+Golden eval 样例放在 `examples/eval/`。它们不调用 ASR、OCR、VLM、`ffmpeg` 或 `ffprobe`，只验证稳定的工程契约：
+
+```bash
+python3 scripts/evaluate_fixtures.py
+```
+
+每个样例包含 `manifest.json`、稳定 metadata、transcript、frame observations，以及人工确认过的 `expected_video_analysis.json`。后续有真实业务视频时，按同样目录结构新增 case 即可。
+
+## 运行要求
+
+- Python 3.9+
+- `ffmpeg`
+- `ffprobe`
+- 可提供 ASR 和多模态理解能力的 Agent/model stack
+
+## 许可证
+
+MIT。详见 [LICENSE](LICENSE)。
+
 ## 和原项目的关系
 
 本仓库基于 [inhai-wiki/video-highlight-skill](https://github.com/inhai-wiki/video-highlight-skill) 改造。原项目使用 MIT License 发布，因此允许复制、修改、发布和再授权；我们保留了 MIT License，并保留 Git 历史中的原作者贡献记录。
@@ -282,7 +333,3 @@ search_index.jsonl
 - 替换原来的高光剪辑首屏品牌图，改为 LP Video Analysis 封面。
 - 新增 [assets/sample_video_analysis.json](assets/sample_video_analysis.json)。
 - 新增基础单元测试。
-
-## License
-
-MIT。详见 [LICENSE](LICENSE)。
